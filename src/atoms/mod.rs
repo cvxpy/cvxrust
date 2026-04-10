@@ -16,6 +16,6 @@ pub use affine::{
 
 // Re-export nonlinear atoms
 pub use nonlinear::{
-    abs, entropy, exp, log, max2, maximum, min2, minimum, neg_part, norm, norm1, norm2, norm_inf,
+    abs, entropy, exp, log, max2, maximum, min2, minimum, neg_part, norm, norm_inf, norm1, norm2,
     pos, power, quad_form, quad_over_lin, sqrt, sum_squares, try_norm,
 };

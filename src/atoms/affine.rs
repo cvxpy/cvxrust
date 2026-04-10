@@ -9,7 +9,7 @@
 use std::ops::{Add, Div, Mul, Neg, Sub};
 use std::sync::Arc;
 
-use crate::expr::{constant, Expr, Shape};
+use crate::expr::{Expr, Shape, constant};
 
 // ============================================================================
 // Operator overloading for Expr

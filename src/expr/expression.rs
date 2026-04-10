@@ -3,8 +3,8 @@
 //! The `Expr` enum represents all possible expressions in the DCP framework.
 //! Expressions form an immutable DAG (directed acyclic graph) using `Arc` for sharing.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use nalgebra::DMatrix;
 use nalgebra_sparse::CscMatrix;
@@ -329,7 +329,7 @@ impl Expr {
                 for (i, r) in spec.ranges.iter().enumerate() {
                     match r {
                         Some((start, stop, step)) => {
-                            let size = (stop - start + step - 1) / step;
+                            let size = (stop - start).div_ceil(*step);
                             if size > 1 {
                                 new_dims.push(size);
                             }

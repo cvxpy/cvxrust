@@ -150,11 +150,7 @@ impl Expr {
             Expr::Exp(a) => Ok(eval_elementwise(a.eval(ctx)?, f64::exp)),
             Expr::Log(a) => Ok(eval_elementwise(a.eval(ctx)?, f64::ln)),
             Expr::Entropy(a) => Ok(eval_elementwise(a.eval(ctx)?, |x| {
-                if x <= 0.0 {
-                    0.0
-                } else {
-                    -x * x.ln()
-                }
+                if x <= 0.0 { 0.0 } else { -x * x.ln() }
             })),
             Expr::Power(a, p) => {
                 let p = *p;
@@ -506,7 +502,7 @@ fn eval_cumsum(a: Array, axis: Option<usize>) -> crate::Result<Array> {
             return Err(crate::CvxError::InvalidProblem(format!(
                 "Invalid axis {} for cumsum",
                 ax
-            )))
+            )));
         }
     }
     Ok(Array::Dense(m))

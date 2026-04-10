@@ -105,7 +105,7 @@ jobs:
         run: cargo run --example portfolio
 
   msrv:
-    name: Check MSRV (1.71)
+    name: Check MSRV (1.85)
     runs-on: ubuntu-latest
 
     steps:
@@ -115,7 +115,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.71"
+          toolchain: "1.87"
 
       - name: Check build with MSRV
         run: cargo check --all-features

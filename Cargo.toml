@@ -1,33 +1,32 @@
 [package]
 name = "cvxrust"
 version = "0.1.0"
-edition = "2021"
-authors = ["CVXPY team"]
+edition = "2024"
 description = "A Rust implementation of Disciplined Convex Programming"
 license = "Apache-2.0"
 repository = "https://github.com/cvxpy/cvxrust"
 documentation = "https://docs.rs/cvxrust"
 keywords = ["optimization", "convex", "dcp", "solver", "math"]
 categories = ["mathematics", "algorithms", "science"]
-rust-version = "1.71"
+rust-version = "1.87"
 
 [dependencies]
 # Clarabel solver
-clarabel = "0.9"
+clarabel = "0.11"
 
 # Sparse matrices
-nalgebra = "0.33"
-nalgebra-sparse = "0.10"
+nalgebra = "0.34"
+nalgebra-sparse = "0.11"
 
 # Error handling
 thiserror = "2.0"
 
 # Fast hash maps
-rustc-hash = "2.0"
+rustc-hash = "2.1"
 
 [dev-dependencies]
 approx = "0.5"
-rand = "0.8"
+rand = "0.10"
 
 [features]
 default = []

@@ -915,7 +915,7 @@ impl CanonContext {
                 let ai = csc_to_dense(&x.coeffs[&var_i]); // (m, ni)
                 for &var_j in &vars {
                     let aj = csc_to_dense(&x.coeffs[&var_j]); // (m, nj)
-                                                              // A_i' * A_j: (ni, m) * (m, nj) = (ni, nj)
+                    // A_i' * A_j: (ni, m) * (m, nj) = (ni, nj)
                     let ai_t_aj = dense_to_csc(&(ai.transpose() * &aj));
                     quad_coeffs
                         .entry((var_i, var_j))

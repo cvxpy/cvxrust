@@ -13,11 +13,11 @@
 
 use std::sync::Arc;
 
-use crate::canon::{canonicalize, ConeConstraint};
+use crate::canon::{ConeConstraint, canonicalize};
 use crate::constraints::Constraint;
 use crate::error::{CvxError, Result};
 use crate::expr::{Expr, ExprId, Shape};
-use crate::solver::{solve, stuff_problem, Settings, Solution, SolveStatus};
+use crate::solver::{Settings, Solution, SolveStatus, solve, stuff_problem};
 
 /// Objective type for optimization problems.
 #[derive(Debug, Clone)]

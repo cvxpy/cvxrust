@@ -8,5 +8,5 @@
 pub mod curvature;
 pub mod sign;
 
-pub use curvature::{add_curvature, scalar_mul_curvature, Curvature, PsdStatus};
-pub use sign::{add_sign, mul_sign, Sign};
+pub use curvature::{Curvature, PsdStatus, add_curvature, scalar_mul_curvature};
+pub use sign::{Sign, add_sign, mul_sign};

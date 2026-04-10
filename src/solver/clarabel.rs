@@ -265,7 +265,8 @@ pub fn solve(problem: &StuffedProblem, settings: &Settings) -> Solution {
         .unwrap();
 
     // Create and run solver
-    let mut solver = DefaultSolver::new(&p, &problem.q, &a, &problem.b, &cones, clarabel_settings);
+    let mut solver = DefaultSolver::new(&p, &problem.q, &a, &problem.b, &cones, clarabel_settings)
+        .expect("Settings to be correct");
     solver.solve();
 
     // Extract solution

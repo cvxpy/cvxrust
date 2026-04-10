@@ -14,13 +14,13 @@ pub mod variable;
 
 // Re-export main types
 pub use constant::{
-    constant, constant_dmatrix, constant_matrix, constant_sparse, constant_vec, eye, ones, zeros,
-    IntoConstant,
+    IntoConstant, constant, constant_dmatrix, constant_matrix, constant_sparse, constant_vec, eye,
+    ones, zeros,
 };
 pub use eval::Evaluable;
 pub use expression::{Array, ConstantData, Expr, ExprId, IndexSpec, VariableData};
 pub use shape::Shape;
 pub use variable::{
-    matrix_var, named_variable, nonneg_variable, nonpos_variable, scalar_var, var, variable,
-    vector_var, VariableBuilder, VariableExt,
+    VariableBuilder, VariableExt, matrix_var, named_variable, nonneg_variable, nonpos_variable,
+    scalar_var, var, variable, vector_var,
 };

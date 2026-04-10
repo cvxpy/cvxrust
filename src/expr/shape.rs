@@ -100,12 +100,10 @@ impl Shape {
         let mut result = Vec::with_capacity(max_ndim);
 
         // Pad shapes with 1s on the left
-        let self_padded: Vec<usize> = std::iter::repeat(1)
-            .take(max_ndim - self.ndim())
+        let self_padded: Vec<usize> = std::iter::repeat_n(1, max_ndim - self.ndim())
             .chain(self.0.iter().copied())
             .collect();
-        let other_padded: Vec<usize> = std::iter::repeat(1)
-            .take(max_ndim - other.ndim())
+        let other_padded: Vec<usize> = std::iter::repeat_n(1, max_ndim - other.ndim())
             .chain(other.0.iter().copied())
             .collect();
 
