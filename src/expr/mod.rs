@@ -6,9 +6,12 @@
 //! - Variable creation via `variable()` and `VariableBuilder`
 //! - Constant creation via `constant()` and related functions
 
+mod array;
 pub mod constant;
 pub mod eval;
 pub mod expression;
+mod indexing;
+mod operators;
 pub mod shape;
 pub mod variable;
 
