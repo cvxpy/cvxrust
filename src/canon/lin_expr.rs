@@ -1,3 +1,8 @@
+/*
+Copyright 2026 CVXRust Authors
+SPDX-License-Identifier: Apache-2.0
+*/
+
 //! Linear and quadratic expression representations for canonicalization.
 //!
 //! After canonicalization, expressions are represented in standard form:

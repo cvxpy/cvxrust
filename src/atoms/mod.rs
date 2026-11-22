@@ -1,3 +1,8 @@
+/*
+Copyright 2026 CVXRust Authors
+SPDX-License-Identifier: Apache-2.0
+*/
+
 //! Atom functions for building expressions.
 //!
 //! Atoms are the building blocks of optimization problems. They include:

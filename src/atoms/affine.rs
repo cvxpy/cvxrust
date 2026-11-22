@@ -1,3 +1,8 @@
+/*
+Copyright 2026 CVXRust Authors
+SPDX-License-Identifier: Apache-2.0
+*/
+
 //! Affine atom constructors for reductions, indexing, and matrix operations.
 
 use std::sync::Arc;

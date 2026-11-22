@@ -30,6 +30,16 @@ make clean    # Remove build artifacts
 - Preserve column-major matrix ordering and Clarabel's `A x + s = b` convention.
 - Enforce variable sign declarations as bounds and preserve explicit constraint
   dual mappings when adding auxiliary constraints.
+- Start project-authored Rust files (`src/`, `tests/`, and `examples/`) with this
+  header. New files use their creation year; preserve existing years and
+  third-party notices when moving or updating code.
+
+```rust
+/*
+Copyright 2026 CVXRust Authors
+SPDX-License-Identifier: Apache-2.0
+*/
+```
 
 ## Validation
 

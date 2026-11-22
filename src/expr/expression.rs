@@ -1,3 +1,8 @@
+/*
+Copyright 2026 CVXRust Authors
+SPDX-License-Identifier: Apache-2.0
+*/
+
 //! Core expression types for cvxrust.
 //!
 //! The `Expr` enum represents all possible expressions in the DCP framework.

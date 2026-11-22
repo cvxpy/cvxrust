@@ -1,3 +1,8 @@
+/*
+Copyright 2026 CVXRust Authors
+SPDX-License-Identifier: Apache-2.0
+*/
+
 //! Stacking expressions and their coefficient matrices.
 
 use std::sync::Arc;

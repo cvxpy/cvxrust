@@ -1,3 +1,8 @@
+/*
+Copyright 2026 CVXRust Authors
+SPDX-License-Identifier: Apache-2.0
+*/
+
 //! Variable occurrence traversal shared by expression and problem queries.
 
 use super::{Expr, VariableData};

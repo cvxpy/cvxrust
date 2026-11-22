@@ -1,3 +1,8 @@
+/*
+Copyright 2026 CVXRust Authors
+SPDX-License-Identifier: Apache-2.0
+*/
+
 //! Lower user constraints into cones while preserving explicit constraint order.
 
 use super::{ConeConstraint, VariableDomains, canonicalize};

@@ -1,3 +1,8 @@
+/*
+Copyright 2026 CVXRust Authors
+SPDX-License-Identifier: Apache-2.0
+*/
+
 //! Curvature tracking for DCP (Disciplined Convex Programming).
 //!
 //! This module implements the curvature rules that determine whether an

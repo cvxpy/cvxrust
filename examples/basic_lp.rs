@@ -1,3 +1,8 @@
+/*
+Copyright 2026 CVXRust Authors
+SPDX-License-Identifier: Apache-2.0
+*/
+
 //! Basic Linear Programming Example
 //!
 //! This example demonstrates solving a simple linear program:

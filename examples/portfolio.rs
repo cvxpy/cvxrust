@@ -1,3 +1,8 @@
+/*
+Copyright 2026 CVXRust Authors
+SPDX-License-Identifier: Apache-2.0
+*/
+
 //! Portfolio Optimization Example
 //!
 //! This example demonstrates Markowitz portfolio optimization:

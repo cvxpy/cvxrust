@@ -1,3 +1,8 @@
+/*
+Copyright 2026 CVXRust Authors
+SPDX-License-Identifier: Apache-2.0
+*/
+
 //! Nonlinear atoms expressed with auxiliary variables and cone constraints.
 
 use std::sync::Arc;

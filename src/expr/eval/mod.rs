@@ -1,3 +1,8 @@
+/*
+Copyright 2026 CVXRust Authors
+SPDX-License-Identifier: Apache-2.0
+*/
+
 //! Expression evaluation given a solution.
 //!
 //! This module provides the `Evaluable` trait and `Expr::eval()` method,

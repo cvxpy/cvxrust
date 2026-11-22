@@ -1,3 +1,8 @@
+/*
+Copyright 2026 CVXRust Authors
+SPDX-License-Identifier: Apache-2.0
+*/
+
 //! Expression canonicalization.
 //!
 //! Canonicalization transforms arbitrary DCP expressions into standard form:

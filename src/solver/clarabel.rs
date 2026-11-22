@@ -1,3 +1,8 @@
+/*
+Copyright 2026 CVXRust Authors
+SPDX-License-Identifier: Apache-2.0
+*/
+
 //! Clarabel solver integration.
 //!
 //! This module provides the interface to the Clarabel conic solver.

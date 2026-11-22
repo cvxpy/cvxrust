@@ -1,3 +1,8 @@
+/*
+Copyright 2026 CVXRust Authors
+SPDX-License-Identifier: Apache-2.0
+*/
+
 //! # cvxrust
 //!
 //! A Rust implementation of Disciplined Convex Programming (DCP).

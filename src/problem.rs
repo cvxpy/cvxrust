@@ -1,3 +1,8 @@
+/*
+Copyright 2026 CVXRust Authors
+SPDX-License-Identifier: Apache-2.0
+*/
+
 //! Problem definition and solving API.
 //!
 //! The `Problem` struct represents an optimization problem with:

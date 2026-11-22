@@ -1,3 +1,8 @@
+/*
+Copyright 2026 CVXRust Authors
+SPDX-License-Identifier: Apache-2.0
+*/
+
 //! Matrix stuffing: converts canonicalized expressions to solver format.
 //!
 //! This module builds the matrices (P, q, A, b) and cone specifications
