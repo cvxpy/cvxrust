@@ -2057,3 +2057,85 @@ fn sign_attribute_setters_replace_previous_attribute() {
         assert!((x.value(&solution).as_scalar().unwrap() - target).abs() < TOL);
     }
 }
+
+#[test]
+fn sign_attribute_dual_ignores_implicit_scalar_bound() {
+    let x = variable(()).nonneg();
+    let solution = Problem::minimize(x.clone())
+        .constraint(x.ge(1.0))
+        .solve()
+        .unwrap();
+
+    // The explicit x >= 1 bound is active; the implicit x >= 0 bound is slack.
+    assert!((solution.constraint_dual(0).unwrap() - 1.0).abs() < TOL);
+    assert!(solution.constraint_dual(1).is_none());
+    let raw_duals = solution.duals().unwrap();
+    assert_eq!(raw_duals.len(), 2);
+    assert!(raw_duals[0].abs() < TOL);
+    assert!((raw_duals[1] - 1.0).abs() < TOL);
+}
+
+#[test]
+fn sign_attribute_duals_follow_mixed_constraint_order() {
+    let x = variable(()).nonneg();
+    let y = variable(()).nonneg();
+    let solution = Problem::minimize(constant(2.0) * &x + constant(3.0) * &y)
+        .subject_to([x.ge(1.0), y.eq(2.0)])
+        .solve()
+        .unwrap();
+
+    // Stationarity gives multipliers 2 for x >= 1 and -3 for y - 2 == 0.
+    assert!((solution.constraint_dual(0).unwrap() - 2.0).abs() < TOL);
+    assert!((solution.constraint_dual(1).unwrap() + 3.0).abs() < TOL);
+    assert!(solution.constraint_dual(2).is_none());
+    // Raw solver rows still place equalities before inequalities.
+    assert!((solution.duals().unwrap()[0] + 3.0).abs() < TOL);
+}
+
+#[test]
+fn sign_attribute_duals_skip_remaining_vector_components() {
+    let x = variable(2).nonneg();
+    let y = variable(()).nonpos();
+    let objective = sum(&(constant_vec(vec![1.0, 2.0]) * &x)) + constant(3.0) * &y;
+    let solution = Problem::minimize(objective)
+        .subject_to([x.ge(constant_vec(vec![1.0, 2.0])), y.ge(-1.0)])
+        .solve()
+        .unwrap();
+
+    // The vector constraint has dual [1, 2], and the scalar constraint has dual 3.
+    assert!((solution.constraint_dual(0).unwrap() - 1.0).abs() < TOL);
+    assert!((solution.constraint_dual(1).unwrap() - 3.0).abs() < TOL);
+    assert!(solution.constraint_dual(2).is_none());
+}
+
+#[test]
+fn sign_attribute_duals_map_soc_and_constraint_only_domains() {
+    let t = variable(()).nonneg();
+    let x = variable(2).nonneg();
+    let y = variable(()).nonneg();
+    let solution = Problem::minimize(constant(2.0) * &t + constant(3.0) * &y)
+        .subject_to([
+            Constraint::soc(t.clone(), x.clone()),
+            x.eq(constant_vec(vec![3.0, 4.0])),
+            y.ge(1.0),
+        ])
+        .solve()
+        .unwrap();
+
+    // At t = ||[3, 4]|| = 5, the SOC dual is [2, -1.2, -1.6].
+    // The equality dual is [-1.2, -1.6], and y >= 1 has multiplier 3.
+    assert!((solution.constraint_dual(0).unwrap() - 2.0).abs() < TOL);
+    assert!((solution.constraint_dual(1).unwrap() + 1.2).abs() < TOL);
+    assert!((solution.constraint_dual(2).unwrap() - 3.0).abs() < TOL);
+    assert!(solution.constraint_dual(3).is_none());
+}
+
+#[test]
+fn sign_attribute_dual_absent_without_explicit_constraints() {
+    let x = variable(()).nonneg();
+    let solution = Problem::minimize(x).solve().unwrap();
+
+    assert!(solution.constraint_dual(0).is_none());
+    assert!(solution.has_duals());
+    assert!((solution.duals().unwrap()[0] - 1.0).abs() < TOL);
+}
