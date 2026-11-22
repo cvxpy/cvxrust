@@ -5,7 +5,9 @@
 //! - Clarabel solver integration
 
 pub mod clarabel;
+mod solution;
 pub mod stuffing;
 
-pub use self::clarabel::{Settings, Solution, SolveStatus, solve};
+pub use self::clarabel::{Settings, solve};
+pub use solution::{Solution, SolveStatus};
 pub use stuffing::{ConeDims, StuffedProblem, VariableMap, stuff_problem};
