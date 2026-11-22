@@ -201,9 +201,12 @@ impl Problem {
 
         // Canonicalize constraints
         let mut all_cone_constraints: Vec<ConeConstraint> = obj_canon.constraints;
+        let mut constraint_indices = Vec::with_capacity(self.constraints.len());
 
         for constraint in &self.constraints {
             let canon_result = canonicalize_constraint(constraint, &mut domains);
+            // The first cone represents the user constraint; the rest are auxiliary.
+            constraint_indices.push(all_cone_constraints.len());
             // Add the cone constraints
             all_cone_constraints.extend(canon_result.cone_constraints);
             // Add auxiliary variables from constraint canonicalization
@@ -215,6 +218,12 @@ impl Problem {
 
         // Solve
         let mut solution = solve(&stuffed, &settings);
+        solution.constraint_rows = Some(
+            constraint_indices
+                .into_iter()
+                .map(|idx| stuffed.constraint_rows[idx].clone())
+                .collect(),
+        );
 
         // Adjust for maximization
         if negate_result {
@@ -311,6 +320,7 @@ impl ProblemBuilder {
 
 /// Result of canonicalizing a constraint.
 struct ConstraintCanonResult {
+    /// The user constraint's cone followed by any auxiliary cones.
     cone_constraints: Vec<ConeConstraint>,
     aux_vars: Vec<(ExprId, Shape)>,
 }

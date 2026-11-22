@@ -3,6 +3,7 @@
 //! This module provides the interface to the Clarabel conic solver.
 
 use std::collections::HashMap;
+use std::ops::Range;
 
 use clarabel::algebra::CscMatrix as ClarabelCsc;
 use clarabel::solver::{
@@ -80,8 +81,11 @@ pub struct Solution {
     pub value: Option<f64>,
     /// Primal variable values (if solved).
     pub primal: Option<HashMap<ExprId, Array>>,
-    /// Dual variable values (if solved).
+    /// Dual variable values in solver cone order (if solved), including implicit bounds.
     pub dual: Option<Vec<f64>>,
+    /// Solver dual row ranges for explicit constraints in problem order.
+    /// Set by `Problem::solve`; `None` for low-level `solve`, which uses raw row indices.
+    pub constraint_rows: Option<Vec<Range<usize>>>,
     /// Solve time in seconds.
     pub solve_time: f64,
     /// Number of iterations.
@@ -148,7 +152,7 @@ impl Solution {
 
     /// Get all dual variable values (Lagrange multipliers).
     ///
-    /// Returns the dual values for all constraints in order:
+    /// Includes implicit variable bounds and auxiliary constraints, in solver order:
     /// 1. Zero cone (equality constraints)
     /// 2. NonNeg cone (inequality constraints)
     /// 3. SOC constraints
@@ -179,7 +183,12 @@ impl Solution {
     /// Get the dual value for a specific constraint by index.
     ///
     /// The constraint index corresponds to the order constraints were added to the problem.
-    /// Returns `None` if the problem was not solved or the index is out of bounds.
+    /// For vector or matrix constraints, returns the first component in column-major order.
+    /// For SOC constraints, returns the component corresponding to `t`.
+    /// Implicit bounds and auxiliary constraints do not count toward this index.
+    /// Solutions from the low-level [`solve`] function use raw solver row indices.
+    /// Returns `None` if the problem was not solved, the constraint has no components,
+    /// or the index is out of bounds.
     ///
     /// # Example
     ///
@@ -199,7 +208,11 @@ impl Solution {
     /// }
     /// ```
     pub fn constraint_dual(&self, idx: usize) -> Option<f64> {
-        self.dual.as_ref().and_then(|d| d.get(idx).copied())
+        let dual = self.dual.as_ref()?;
+        match &self.constraint_rows {
+            Some(rows) => dual.get(rows.get(idx)?.clone())?.first().copied(),
+            None => dual.get(idx).copied(),
+        }
     }
 
     /// Check if the solution has dual values available.
@@ -286,6 +299,7 @@ pub fn solve(problem: &StuffedProblem, settings: &Settings) -> Solution {
             value: Some(value),
             primal: Some(primal),
             dual: Some(solver.solution.z.clone()),
+            constraint_rows: None,
             solve_time,
             iterations,
         }
@@ -295,6 +309,7 @@ pub fn solve(problem: &StuffedProblem, settings: &Settings) -> Solution {
             value: None,
             primal: None,
             dual: None,
+            constraint_rows: None,
             solve_time,
             iterations,
         }
@@ -386,6 +401,34 @@ fn compute_objective(x: &[f64], p: &nalgebra_sparse::CscMatrix<f64>, q: &[f64]) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_low_level_solve_preserves_raw_dual_indices() {
+        use crate::canon::{ConeConstraint, LinExpr, QuadExpr};
+        use crate::expr::Shape;
+        use crate::solver::stuff_problem;
+
+        let id = ExprId::new();
+        let x = LinExpr::variable(id, Shape::scalar());
+        let constraints = [
+            ConeConstraint::NonNeg { a: x.clone() },
+            ConeConstraint::NonNeg {
+                a: x.add(&LinExpr::scalar(-1.0)),
+            },
+        ];
+        let stuffed = stuff_problem(
+            &QuadExpr::from_linear(x),
+            &constraints,
+            &[(id, Shape::scalar())],
+        );
+        let solution = solve(&stuffed, &Settings::default());
+
+        assert_eq!(solution.status, SolveStatus::Optimal);
+        assert!(solution.constraint_rows.is_none());
+        assert!(solution.constraint_dual(0).unwrap().abs() < 1e-6);
+        assert!((solution.constraint_dual(1).unwrap() - 1.0).abs() < 1e-6);
+        assert!(solution.constraint_dual(2).is_none());
+    }
 
     #[test]
     fn test_default_settings() {
