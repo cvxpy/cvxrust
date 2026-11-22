@@ -45,16 +45,18 @@ impl VariableBuilder {
     }
 
     /// Constrain the variable to be non-negative (x >= 0).
+    /// Replaces any previous non-positive declaration on this builder.
     pub fn nonneg(mut self) -> Self {
         self.nonneg = true;
-        self.nonpos = false; // Can't be both
+        self.nonpos = false; // Setting a sign replaces the previous declaration.
         self
     }
 
     /// Constrain the variable to be non-positive (x <= 0).
+    /// Replaces any previous non-negative declaration on this builder.
     pub fn nonpos(mut self) -> Self {
         self.nonpos = true;
-        self.nonneg = false; // Can't be both
+        self.nonneg = false; // Setting a sign replaces the previous declaration.
         self
     }
 
@@ -92,11 +94,15 @@ pub fn variable(shape: impl Into<Shape>) -> Expr {
 }
 
 /// Extension trait for variable-like operations on Expr.
+///
+/// Sign setters preserve the variable ID and replace the sign declaration on
+/// this expression. Other clones are unchanged. When multiple clones appear in
+/// one problem, their sign declarations are all enforced.
 pub trait VariableExt {
-    /// Create a non-negative variable with this shape.
+    /// Declare this variable non-negative, replacing its non-positive declaration.
     fn nonneg(self) -> Expr;
 
-    /// Create a non-positive variable with this shape.
+    /// Declare this variable non-positive, replacing its non-negative declaration.
     fn nonpos(self) -> Expr;
 
     /// Give a name to this expression (if it's a variable).

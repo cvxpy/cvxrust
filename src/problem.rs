@@ -163,11 +163,19 @@ impl Problem {
     }
 
     /// Solve the problem with default settings.
+    ///
+    /// Variable sign declarations are enforced as described in [`Self::solve_with`].
     pub fn solve(&self) -> Result<Solution> {
         self.solve_with(Settings::default())
     }
 
     /// Solve the problem with custom settings.
+    ///
+    /// Sign declarations on variables referenced by the objective or constraints
+    /// are enforced elementwise. Clones with the same variable ID contribute all
+    /// their declared bounds: an unrestricted clone does not remove a bound, and
+    /// opposite signs require the variable to be zero. Unused clones have no effect.
+    /// Bound tracking is independent for each solve.
     pub fn solve_with(&self, settings: Settings) -> Result<Solution> {
         // Check DCP compliance
         if !self.is_dcp() {

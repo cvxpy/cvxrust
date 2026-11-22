@@ -94,16 +94,38 @@ impl CanonExpr {
 }
 
 /// Implicit variable bounds already emitted during canonicalization.
+///
+/// Create fresh state with [`Self::default`] for each independent problem.
+/// Reuse it across expressions in the same problem, retaining the constraints
+/// returned by every call to [`canonicalize`]. The state tracks emitted bounds
+/// but does not store the constraints themselves.
 #[derive(Default)]
 pub struct VariableDomains {
     nonneg: HashSet<ExprId>,
     nonpos: HashSet<ExprId>,
 }
 
-/// Canonicalize an expression.
+/// Canonicalize an expression using explicit variable domain state.
 ///
 /// This converts the expression tree into affine form plus cone constraints.
 /// For objectives, quadratic expressions are preserved for native QP support.
+/// Variable sign declarations are included as elementwise bounds. Declarations
+/// on clones with the same variable ID combine, so opposite signs require zero.
+/// Only variables referenced by the expression contribute bounds.
+///
+/// Reuse `domains` across expressions whose results form one problem. Each call
+/// returns only newly emitted variable bounds, so combine the constraints from
+/// all calls sharing that state. For an independent result, use fresh state.
+///
+/// ```
+/// use cvxrust::canon::{VariableDomains, canonicalize};
+/// use cvxrust::prelude::*;
+///
+/// let x = variable(3).nonneg();
+/// let mut domains = VariableDomains::default();
+/// let result = canonicalize(&x, false, &mut domains);
+/// assert_eq!(result.constraints.len(), 1);
+/// ```
 pub fn canonicalize(
     expr: &Expr,
     for_objective: bool,
