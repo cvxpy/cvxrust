@@ -273,65 +273,10 @@ impl Expr {
     /// Collect all variables in this expression.
     pub fn variables(&self) -> Vec<ExprId> {
         let mut vars = Vec::new();
-        self.collect_variables(&mut vars);
+        self.visit_variables(&mut |variable| vars.push(variable.id));
         vars.sort_by_key(|id| id.0);
         vars.dedup();
         vars
-    }
-
-    fn collect_variables(&self, vars: &mut Vec<ExprId>) {
-        match self {
-            Expr::Variable(v) => vars.push(v.id),
-            Expr::Constant(_) => {}
-
-            // Affine - recurse
-            Expr::Add(a, b) | Expr::Mul(a, b) | Expr::MatMul(a, b) => {
-                a.collect_variables(vars);
-                b.collect_variables(vars);
-            }
-            Expr::Neg(a)
-            | Expr::Promote(a, _)
-            | Expr::Sum(a, _)
-            | Expr::Reshape(a, _)
-            | Expr::Index(a, _)
-            | Expr::Transpose(a)
-            | Expr::Trace(a) => {
-                a.collect_variables(vars);
-            }
-            Expr::VStack(exprs) | Expr::HStack(exprs) => {
-                for e in exprs {
-                    e.collect_variables(vars);
-                }
-            }
-
-            // Nonlinear
-            Expr::Norm1(a)
-            | Expr::Norm2(a)
-            | Expr::NormInf(a)
-            | Expr::Abs(a)
-            | Expr::Pos(a)
-            | Expr::NegPart(a)
-            | Expr::SumSquares(a) => {
-                a.collect_variables(vars);
-            }
-            Expr::Maximum(exprs) | Expr::Minimum(exprs) => {
-                for e in exprs {
-                    e.collect_variables(vars);
-                }
-            }
-            Expr::QuadForm(x, p) | Expr::QuadOverLin(x, p) => {
-                x.collect_variables(vars);
-                p.collect_variables(vars);
-            }
-            // Exponential cone atoms
-            Expr::Exp(a) | Expr::Log(a) | Expr::Entropy(a) | Expr::Power(a, _) => {
-                a.collect_variables(vars);
-            }
-            // Additional affine atoms
-            Expr::Cumsum(a, _) | Expr::Diag(a) => {
-                a.collect_variables(vars);
-            }
-        }
     }
 }
 

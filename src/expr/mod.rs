@@ -13,6 +13,7 @@ pub mod expression;
 mod indexing;
 mod operators;
 pub mod shape;
+mod traversal;
 pub mod variable;
 
 // Re-export main types
