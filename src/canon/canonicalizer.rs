@@ -1653,7 +1653,79 @@ fn scalar_constant_value(expr: &Expr) -> Option<f64> {
 mod tests {
     use super::*;
     use crate::atoms::{matmul, promote, sum_axis};
-    use crate::expr::{constant, constant_matrix, variable};
+    use crate::expr::{VariableExt, constant, constant_matrix, variable};
+
+    fn sign_attribute_domain_contains(result: &CanonResult, id: ExprId, value: f64) -> bool {
+        result.constraints.iter().all(|constraint| {
+            let ConeConstraint::NonNeg { a } = constraint else {
+                panic!("expected a variable bound");
+            };
+            let coeff = &a.coeffs[&id];
+            let point = DMatrix::from_element(coeff.ncols(), 1, value);
+            let offset = a
+                .constant
+                .clone()
+                .reshape_generic(nalgebra::Dyn(a.size()), nalgebra::Dyn(1));
+            (csc_to_dense(coeff) * point + offset)
+                .iter()
+                .all(|&entry| entry >= 0.0)
+        })
+    }
+
+    #[test]
+    fn test_sign_attribute_fresh_domains() {
+        for shape in [Shape::scalar(), Shape::vector(3), Shape::matrix(2, 3)] {
+            let raw = variable(shape);
+            let id = raw.variable_id().unwrap();
+            let positive = raw.clone().nonneg();
+            let negative = raw.clone().nonpos();
+            for (expr, accepts_negative, accepts_positive, bounds) in [
+                (raw, true, true, 0),
+                (positive.clone(), false, true, 1),
+                (negative.clone(), true, false, 1),
+                (&positive + &positive, false, true, 1),
+                (&positive + &negative, false, false, 2),
+                (&negative + &positive, false, false, 2),
+            ] {
+                // Fresh state must return the complete domain on each call.
+                for _ in 0..2 {
+                    let result = canonicalize(&expr, false, &mut VariableDomains::default());
+                    assert!(result.aux_vars.is_empty());
+                    assert_eq!(result.constraints.len(), bounds);
+                    assert!(sign_attribute_domain_contains(&result, id, 0.0));
+                    assert_eq!(
+                        sign_attribute_domain_contains(&result, id, -1.0),
+                        accepts_negative
+                    );
+                    assert_eq!(
+                        sign_attribute_domain_contains(&result, id, 1.0),
+                        accepts_positive
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_sign_attribute_shared_domains_preserve_later_bounds() {
+        let raw = variable(());
+        let positive = raw.clone().nonneg();
+        let negative = raw.nonpos();
+        let mut domains = VariableDomains::default();
+
+        let first = canonicalize(&positive, false, &mut domains);
+        let repeated = canonicalize(&positive, false, &mut domains);
+        let opposite = canonicalize(&negative, false, &mut domains);
+
+        assert_eq!(first.constraints.len(), 1);
+        assert!(repeated.constraints.is_empty());
+        assert_eq!(opposite.constraints.len(), 1);
+        assert!(!sign_attribute_domain_contains(
+            &opposite,
+            negative.variable_id().unwrap(),
+            1.0
+        ));
+    }
 
     #[test]
     fn test_canonicalize_variable() {
