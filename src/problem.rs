@@ -13,7 +13,7 @@
 
 use std::sync::Arc;
 
-use crate::canon::{ConeConstraint, canonicalize};
+use crate::canon::{ConeConstraint, VariableDomains, canonicalize};
 use crate::constraints::Constraint;
 use crate::error::{CvxError, Result};
 use crate::expr::{Expr, ExprId, Shape};
@@ -181,7 +181,8 @@ impl Problem {
         };
 
         // Canonicalize objective
-        let obj_canon = canonicalize(&obj_expr, true);
+        let mut domains = VariableDomains::default();
+        let obj_canon = canonicalize(&obj_expr, true, &mut domains);
         let obj_quad = obj_canon.expr.into_quadratic();
 
         // Collect all variables (original + auxiliary) with their shapes
@@ -194,7 +195,7 @@ impl Problem {
         let mut all_cone_constraints: Vec<ConeConstraint> = obj_canon.constraints;
 
         for constraint in &self.constraints {
-            let canon_result = canonicalize_constraint(constraint);
+            let canon_result = canonicalize_constraint(constraint, &mut domains);
             // Add the cone constraints
             all_cone_constraints.extend(canon_result.cone_constraints);
             // Add auxiliary variables from constraint canonicalization
@@ -307,10 +308,13 @@ struct ConstraintCanonResult {
 }
 
 /// Canonicalize a user constraint into cone constraints and auxiliary variables.
-fn canonicalize_constraint(constraint: &Constraint) -> ConstraintCanonResult {
+fn canonicalize_constraint(
+    constraint: &Constraint,
+    domains: &mut VariableDomains,
+) -> ConstraintCanonResult {
     match constraint {
         Constraint::Zero(expr) => {
-            let canon = canonicalize(expr, false);
+            let canon = canonicalize(expr, false, domains);
             let lin = canon.expr.as_linear().clone();
             let mut cone_constraints = vec![ConeConstraint::Zero { a: lin }];
             cone_constraints.extend(canon.constraints);
@@ -320,7 +324,7 @@ fn canonicalize_constraint(constraint: &Constraint) -> ConstraintCanonResult {
             }
         }
         Constraint::NonNeg(expr) => {
-            let canon = canonicalize(expr, false);
+            let canon = canonicalize(expr, false, domains);
             let lin = canon.expr.as_linear().clone();
             let mut cone_constraints = vec![ConeConstraint::NonNeg { a: lin }];
             cone_constraints.extend(canon.constraints);
@@ -330,8 +334,8 @@ fn canonicalize_constraint(constraint: &Constraint) -> ConstraintCanonResult {
             }
         }
         Constraint::SOC { t, x } => {
-            let t_canon = canonicalize(t, false);
-            let x_canon = canonicalize(x, false);
+            let t_canon = canonicalize(t, false, domains);
+            let x_canon = canonicalize(x, false, domains);
             let t_lin = t_canon.expr.as_linear().clone();
             let x_lin = x_canon.expr.as_linear().clone();
             let mut cone_constraints = vec![ConeConstraint::SOC { t: t_lin, x: x_lin }];
