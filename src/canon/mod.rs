@@ -8,5 +8,5 @@
 pub mod canonicalizer;
 pub mod lin_expr;
 
-pub use canonicalizer::{CanonExpr, CanonResult, ConeConstraint, canonicalize};
+pub use canonicalizer::{CanonExpr, CanonResult, ConeConstraint, VariableDomains, canonicalize};
 pub use lin_expr::{LinExpr, QuadExpr};

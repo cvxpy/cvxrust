@@ -5,6 +5,7 @@
 //! - Quadratic objectives become QuadExpr (with P matrix for native QP)
 //! - Nonlinear atoms are reformulated as affine + cone constraints
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use nalgebra::DMatrix;
@@ -92,12 +93,45 @@ impl CanonExpr {
     }
 }
 
-/// Canonicalize an expression.
+/// Implicit variable bounds already emitted during canonicalization.
+///
+/// Create fresh state with [`Self::default`] for each independent problem.
+/// Reuse it across expressions in the same problem, retaining the constraints
+/// returned by every call to [`canonicalize`]. The state tracks emitted bounds
+/// but does not store the constraints themselves.
+#[derive(Default)]
+pub struct VariableDomains {
+    nonneg: HashSet<ExprId>,
+    nonpos: HashSet<ExprId>,
+}
+
+/// Canonicalize an expression using explicit variable domain state.
 ///
 /// This converts the expression tree into affine form plus cone constraints.
 /// For objectives, quadratic expressions are preserved for native QP support.
-pub fn canonicalize(expr: &Expr, for_objective: bool) -> CanonResult {
-    let mut ctx = CanonContext::new();
+/// Variable sign declarations are included as elementwise bounds. Declarations
+/// on clones with the same variable ID combine, so opposite signs require zero.
+/// Only variables referenced by the expression contribute bounds.
+///
+/// Reuse `domains` across expressions whose results form one problem. Each call
+/// returns only newly emitted variable bounds, so combine the constraints from
+/// all calls sharing that state. For an independent result, use fresh state.
+///
+/// ```
+/// use cvxrust::canon::{VariableDomains, canonicalize};
+/// use cvxrust::prelude::*;
+///
+/// let x = variable(3).nonneg();
+/// let mut domains = VariableDomains::default();
+/// let result = canonicalize(&x, false, &mut domains);
+/// assert_eq!(result.constraints.len(), 1);
+/// ```
+pub fn canonicalize(
+    expr: &Expr,
+    for_objective: bool,
+    domains: &mut VariableDomains,
+) -> CanonResult {
+    let mut ctx = CanonContext::new(domains);
     let canon_expr = ctx.canonicalize_expr(expr, for_objective);
     CanonResult {
         expr: canon_expr,
@@ -107,16 +141,18 @@ pub fn canonicalize(expr: &Expr, for_objective: bool) -> CanonResult {
 }
 
 /// Context for canonicalization, tracking auxiliary variables and constraints.
-struct CanonContext {
+struct CanonContext<'a> {
     constraints: Vec<ConeConstraint>,
     aux_vars: Vec<(ExprId, Shape)>,
+    domains: &'a mut VariableDomains,
 }
 
-impl CanonContext {
-    fn new() -> Self {
+impl<'a> CanonContext<'a> {
+    fn new(domains: &'a mut VariableDomains) -> Self {
         CanonContext {
             constraints: Vec::new(),
             aux_vars: Vec::new(),
+            domains,
         }
     }
 
@@ -144,7 +180,18 @@ impl CanonContext {
     fn canonicalize_expr(&mut self, expr: &Expr, for_objective: bool) -> CanonExpr {
         match expr {
             // Leaves
-            Expr::Variable(v) => CanonExpr::Linear(LinExpr::variable(v.id, v.shape.clone())),
+            Expr::Variable(v) => {
+                let lin = LinExpr::variable(v.id, v.shape.clone());
+                if v.nonneg && self.domains.nonneg.insert(v.id) {
+                    self.constraints
+                        .push(ConeConstraint::NonNeg { a: lin.clone() });
+                }
+                if v.nonpos && self.domains.nonpos.insert(v.id) {
+                    self.constraints
+                        .push(ConeConstraint::NonNeg { a: lin.neg() });
+                }
+                CanonExpr::Linear(lin)
+            }
             Expr::Constant(c) => CanonExpr::Linear(self.canonicalize_constant(&c.value)),
 
             // Affine operations
@@ -1606,12 +1653,84 @@ fn scalar_constant_value(expr: &Expr) -> Option<f64> {
 mod tests {
     use super::*;
     use crate::atoms::{matmul, promote, sum_axis};
-    use crate::expr::{constant, constant_matrix, variable};
+    use crate::expr::{VariableExt, constant, constant_matrix, variable};
+
+    fn sign_attribute_domain_contains(result: &CanonResult, id: ExprId, value: f64) -> bool {
+        result.constraints.iter().all(|constraint| {
+            let ConeConstraint::NonNeg { a } = constraint else {
+                panic!("expected a variable bound");
+            };
+            let coeff = &a.coeffs[&id];
+            let point = DMatrix::from_element(coeff.ncols(), 1, value);
+            let offset = a
+                .constant
+                .clone()
+                .reshape_generic(nalgebra::Dyn(a.size()), nalgebra::Dyn(1));
+            (csc_to_dense(coeff) * point + offset)
+                .iter()
+                .all(|&entry| entry >= 0.0)
+        })
+    }
+
+    #[test]
+    fn test_sign_attribute_fresh_domains() {
+        for shape in [Shape::scalar(), Shape::vector(3), Shape::matrix(2, 3)] {
+            let raw = variable(shape);
+            let id = raw.variable_id().unwrap();
+            let positive = raw.clone().nonneg();
+            let negative = raw.clone().nonpos();
+            for (expr, accepts_negative, accepts_positive, bounds) in [
+                (raw, true, true, 0),
+                (positive.clone(), false, true, 1),
+                (negative.clone(), true, false, 1),
+                (&positive + &positive, false, true, 1),
+                (&positive + &negative, false, false, 2),
+                (&negative + &positive, false, false, 2),
+            ] {
+                // Fresh state must return the complete domain on each call.
+                for _ in 0..2 {
+                    let result = canonicalize(&expr, false, &mut VariableDomains::default());
+                    assert!(result.aux_vars.is_empty());
+                    assert_eq!(result.constraints.len(), bounds);
+                    assert!(sign_attribute_domain_contains(&result, id, 0.0));
+                    assert_eq!(
+                        sign_attribute_domain_contains(&result, id, -1.0),
+                        accepts_negative
+                    );
+                    assert_eq!(
+                        sign_attribute_domain_contains(&result, id, 1.0),
+                        accepts_positive
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_sign_attribute_shared_domains_preserve_later_bounds() {
+        let raw = variable(());
+        let positive = raw.clone().nonneg();
+        let negative = raw.nonpos();
+        let mut domains = VariableDomains::default();
+
+        let first = canonicalize(&positive, false, &mut domains);
+        let repeated = canonicalize(&positive, false, &mut domains);
+        let opposite = canonicalize(&negative, false, &mut domains);
+
+        assert_eq!(first.constraints.len(), 1);
+        assert!(repeated.constraints.is_empty());
+        assert_eq!(opposite.constraints.len(), 1);
+        assert!(!sign_attribute_domain_contains(
+            &opposite,
+            negative.variable_id().unwrap(),
+            1.0
+        ));
+    }
 
     #[test]
     fn test_canonicalize_variable() {
         let x = variable(5);
-        let result = canonicalize(&x, false);
+        let result = canonicalize(&x, false, &mut VariableDomains::default());
         assert!(result.constraints.is_empty());
         assert!(matches!(result.expr, CanonExpr::Linear(_)));
     }
@@ -1620,7 +1739,7 @@ mod tests {
     fn test_canonicalize_norm2() {
         let x = variable(5);
         let n = Expr::Norm2(Arc::new(x));
-        let result = canonicalize(&n, false);
+        let result = canonicalize(&n, false, &mut VariableDomains::default());
         // Should have 1 SOC constraint + 1 NonNeg (t >= 0), and 1 aux variable
         assert_eq!(result.constraints.len(), 2);
         assert_eq!(result.aux_vars.len(), 1);
@@ -1630,7 +1749,7 @@ mod tests {
     fn test_canonicalize_sum_squares_objective() {
         let x = variable(5);
         let s = Expr::SumSquares(Arc::new(x));
-        let result = canonicalize(&s, true);
+        let result = canonicalize(&s, true, &mut VariableDomains::default());
         // For objective, should produce quadratic or SOC
         assert!(matches!(result.expr, CanonExpr::Quadratic(_)) || !result.constraints.is_empty());
     }
@@ -1638,7 +1757,7 @@ mod tests {
     #[test]
     fn test_canonicalize_sum_axis_vector_returns_scalar() {
         let x = variable(3);
-        let result = canonicalize(&sum_axis(&x, 0), false);
+        let result = canonicalize(&sum_axis(&x, 0), false, &mut VariableDomains::default());
 
         assert_eq!(result.expr.as_linear().shape, Shape::scalar());
     }
@@ -1647,7 +1766,11 @@ mod tests {
     #[should_panic(expected = "axis 2 out of bounds for shape (2, 3)")]
     fn test_canonicalize_sum_axis_invalid_direct_expr_panics() {
         let x = variable((2, 3));
-        let _ = canonicalize(&Expr::Sum(Arc::new(x), Some(2)), false);
+        let _ = canonicalize(
+            &Expr::Sum(Arc::new(x), Some(2)),
+            false,
+            &mut VariableDomains::default(),
+        );
     }
 
     #[test]
@@ -1655,7 +1778,7 @@ mod tests {
     fn test_canonicalize_reshape_size_mismatch_direct_expr_panics() {
         let x = variable(3);
         let expr = Expr::Reshape(Arc::new(x), Shape::matrix(2, 2));
-        let _ = canonicalize(&expr, false);
+        let _ = canonicalize(&expr, false, &mut VariableDomains::default());
     }
 
     #[test]
@@ -1664,7 +1787,7 @@ mod tests {
         let x = variable((2, 3));
         let y = variable((3, 2));
         let expr = Expr::VStack(vec![Arc::new(x), Arc::new(y)]);
-        let _ = canonicalize(&expr, false);
+        let _ = canonicalize(&expr, false, &mut VariableDomains::default());
     }
 
     #[test]
@@ -1673,13 +1796,17 @@ mod tests {
         let x = variable((2, 3));
         let y = variable((3, 3));
         let expr = Expr::HStack(vec![Arc::new(x), Arc::new(y)]);
-        let _ = canonicalize(&expr, false);
+        let _ = canonicalize(&expr, false, &mut VariableDomains::default());
     }
 
     #[test]
     #[should_panic(expected = "maximum requires at least one expression")]
     fn test_canonicalize_maximum_empty_direct_expr_panics() {
-        let _ = canonicalize(&Expr::Maximum(Vec::new()), false);
+        let _ = canonicalize(
+            &Expr::Maximum(Vec::new()),
+            false,
+            &mut VariableDomains::default(),
+        );
     }
 
     #[test]
@@ -1687,7 +1814,7 @@ mod tests {
         let x = variable(3);
         let y = variable(());
         let expr = Expr::Maximum(vec![Arc::new(x), Arc::new(y)]);
-        let result = canonicalize(&expr, false);
+        let result = canonicalize(&expr, false, &mut VariableDomains::default());
 
         assert_eq!(result.expr.as_linear().shape, Shape::vector(3));
     }
@@ -1698,13 +1825,17 @@ mod tests {
         let x = variable(2);
         let y = variable(3);
         let expr = Expr::Maximum(vec![Arc::new(x), Arc::new(y)]);
-        let _ = canonicalize(&expr, false);
+        let _ = canonicalize(&expr, false, &mut VariableDomains::default());
     }
 
     #[test]
     #[should_panic(expected = "minimum requires at least one expression")]
     fn test_canonicalize_minimum_empty_direct_expr_panics() {
-        let _ = canonicalize(&Expr::Minimum(Vec::new()), false);
+        let _ = canonicalize(
+            &Expr::Minimum(Vec::new()),
+            false,
+            &mut VariableDomains::default(),
+        );
     }
 
     #[test]
@@ -1712,7 +1843,7 @@ mod tests {
         let x = variable(3);
         let y = variable(());
         let expr = Expr::Minimum(vec![Arc::new(x), Arc::new(y)]);
-        let result = canonicalize(&expr, false);
+        let result = canonicalize(&expr, false, &mut VariableDomains::default());
 
         assert_eq!(result.expr.as_linear().shape, Shape::vector(3));
     }
@@ -1723,14 +1854,14 @@ mod tests {
         let x = variable(2);
         let y = variable(3);
         let expr = Expr::Minimum(vec![Arc::new(x), Arc::new(y)]);
-        let _ = canonicalize(&expr, false);
+        let _ = canonicalize(&expr, false, &mut VariableDomains::default());
     }
 
     #[test]
     fn test_canonicalize_matmul_preserves_vector_result_shape() {
         let a = constant_matrix(vec![1.0, 3.0, 5.0, 2.0, 4.0, 6.0], 2, 3);
         let x = variable(3);
-        let result = canonicalize(&matmul(&a, &x), false);
+        let result = canonicalize(&matmul(&a, &x), false, &mut VariableDomains::default());
 
         assert_eq!(result.expr.as_linear().shape, Shape::vector(2));
     }
@@ -1739,7 +1870,7 @@ mod tests {
     fn test_canonicalize_matmul_preserves_column_matrix_result_shape() {
         let a = constant_matrix(vec![1.0, 3.0, 5.0, 2.0, 4.0, 6.0], 2, 3);
         let x = variable((3, 1));
-        let result = canonicalize(&matmul(&a, &x), false);
+        let result = canonicalize(&matmul(&a, &x), false, &mut VariableDomains::default());
 
         assert_eq!(result.expr.as_linear().shape, Shape::matrix(2, 1));
     }
@@ -1751,7 +1882,7 @@ mod tests {
         let promoted = promote(&constant(3.0), (2, 2));
         assert!(promoted.constant_value().is_none());
 
-        let result = canonicalize(&(promoted * x), false);
+        let result = canonicalize(&(promoted * x), false, &mut VariableDomains::default());
         let lin = result.expr.as_linear();
         let coeff = csc_to_dense(&lin.coeffs[&x_id]);
 
@@ -1765,7 +1896,7 @@ mod tests {
     fn test_canonicalize_variable_product_panics() {
         let x = variable(2);
         let y = variable(2);
-        let _ = canonicalize(&(&x * &y), false);
+        let _ = canonicalize(&(&x * &y), false, &mut VariableDomains::default());
     }
 
     #[test]
@@ -1773,7 +1904,11 @@ mod tests {
     fn test_canonicalize_invalid_matmul_shape_panics() {
         let a = constant_matrix(vec![1.0, 3.0, 5.0, 2.0, 4.0, 6.0], 2, 3);
         let x = variable(2);
-        let _ = canonicalize(&Expr::MatMul(Arc::new(a), Arc::new(x)), false);
+        let _ = canonicalize(
+            &Expr::MatMul(Arc::new(a), Arc::new(x)),
+            false,
+            &mut VariableDomains::default(),
+        );
     }
 
     #[test]
@@ -1781,6 +1916,6 @@ mod tests {
     fn test_canonicalize_variable_matmul_panics() {
         let x = variable((2, 2));
         let y = variable((2, 2));
-        let _ = canonicalize(&matmul(&x, &y), false);
+        let _ = canonicalize(&matmul(&x, &y), false, &mut VariableDomains::default());
     }
 }
