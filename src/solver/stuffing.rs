@@ -186,8 +186,6 @@ fn stuff_constraints(
     constraints: &[ConeConstraint],
     var_map: &VariableMap,
 ) -> (CscMatrix<f64>, Vec<f64>, ConeDims, Vec<Range<usize>>) {
-    let n = var_map.total_vars;
-
     // Separate constraints by type
     let mut zeros = Vec::new();
     let mut nonnegs = Vec::new();
@@ -224,236 +222,99 @@ fn stuff_constraints(
         power: power_alphas,
     };
 
-    // Build A and b
-    let mut a_rows = Vec::new();
-    let mut a_cols = Vec::new();
-    let mut a_vals = Vec::new();
-    let mut b = vec![0.0; total_rows];
-    let mut constraint_rows = vec![0..0; constraints.len()];
+    let mut assembly = ConstraintAssembly::new(var_map, total_rows, constraints.len());
 
-    let mut row_offset = 0;
-
-    // Zero cone (equalities): expr = 0
-    // In Clarabel form Ax = b, we have Ax + const = 0, so Ax = -const
+    // Equalities use A = coefficients and b = -constant.
     for (idx, expr) in zeros {
-        constraint_rows[idx] = row_offset..row_offset + expr.size();
-        stuff_linear_expr(
-            expr,
-            var_map,
-            row_offset,
-            &mut a_rows,
-            &mut a_cols,
-            &mut a_vals,
-            &mut b,
-            false, // No negation for equality
-        );
-        row_offset += expr.size();
+        assembly.append_constraint(idx, &[expr], false);
     }
 
-    // Nonnegative cone: expr >= 0
-    // In Clarabel form Ax + s = b, s >= 0 gives Ax <= b
-    // We want expr = Ax + const >= 0, i.e., -Ax <= const
+    // Other cones use A = -coefficients and b = constant, so their
+    // affine expressions appear in the slack s of A x + s = b.
     for (idx, expr) in nonnegs {
-        constraint_rows[idx] = row_offset..row_offset + expr.size();
-        stuff_linear_expr(
-            expr,
-            var_map,
-            row_offset,
-            &mut a_rows,
-            &mut a_cols,
-            &mut a_vals,
-            &mut b,
-            true, // Negate for inequality
-        );
-        row_offset += expr.size();
+        assembly.append_constraint(idx, &[expr], true);
+    }
+    for (idx, t, x) in socs {
+        assembly.append_constraint(idx, &[t, x], true);
+    }
+    for (idx, x, y, z) in exps {
+        assembly.append_constraint(idx, &[x, y, z], true);
+    }
+    for (idx, x, y, z, _alpha) in powers {
+        assembly.append_constraint(idx, &[x, y, z], true);
     }
 
-    // SOC: ||x||_2 <= t, represented as [t; x] in K_soc
-    // In Clarabel: s in K_soc means s[0] >= ||s[1:]||_2
-    // We want [t_expr; x_expr] in K_soc
-    // So s = [t_expr; x_expr], meaning -A @ vars + s = const
-    for (idx, t_expr, x_expr) in socs {
-        constraint_rows[idx] = row_offset..row_offset + t_expr.size() + x_expr.size();
-        // t part - negate to get s = t_expr
-        stuff_linear_expr(
-            t_expr,
-            var_map,
-            row_offset,
-            &mut a_rows,
-            &mut a_cols,
-            &mut a_vals,
-            &mut b,
-            true, // Negate for SOC
-        );
-        row_offset += t_expr.size();
-
-        // x part - negate to get s = x_expr
-        stuff_linear_expr(
-            x_expr,
-            var_map,
-            row_offset,
-            &mut a_rows,
-            &mut a_cols,
-            &mut a_vals,
-            &mut b,
-            true, // Negate for SOC
-        );
-        row_offset += x_expr.size();
-    }
-
-    // Exponential cone: (x, y, z) in K_exp
-    // Clarabel form: s in K_exp means y*exp(x/y) <= z with y >= 0
-    // Variable order: [x; y; z]
-    // Negate to get s = [x_expr; y_expr; z_expr]
-    for (idx, x_expr, y_expr, z_expr) in exps {
-        constraint_rows[idx] =
-            row_offset..row_offset + x_expr.size() + y_expr.size() + z_expr.size();
-        // x part
-        stuff_linear_expr(
-            x_expr,
-            var_map,
-            row_offset,
-            &mut a_rows,
-            &mut a_cols,
-            &mut a_vals,
-            &mut b,
-            true, // Negate for exp cone
-        );
-        row_offset += x_expr.size();
-
-        // y part
-        stuff_linear_expr(
-            y_expr,
-            var_map,
-            row_offset,
-            &mut a_rows,
-            &mut a_cols,
-            &mut a_vals,
-            &mut b,
-            true, // Negate for exp cone
-        );
-        row_offset += y_expr.size();
-
-        // z part
-        stuff_linear_expr(
-            z_expr,
-            var_map,
-            row_offset,
-            &mut a_rows,
-            &mut a_cols,
-            &mut a_vals,
-            &mut b,
-            true, // Negate for exp cone
-        );
-        row_offset += z_expr.size();
-    }
-
-    // Power cone: (x, y, z) in K_pow(alpha)
-    // Clarabel form: s in K_pow(alpha) means x^alpha * y^(1-alpha) >= |z| with x, y >= 0
-    // Variable order: [x; y; z]
-    // Negate to get s = [x_expr; y_expr; z_expr]
-    for (idx, x_expr, y_expr, z_expr, _alpha) in powers {
-        constraint_rows[idx] =
-            row_offset..row_offset + x_expr.size() + y_expr.size() + z_expr.size();
-        // x part
-        stuff_linear_expr(
-            x_expr,
-            var_map,
-            row_offset,
-            &mut a_rows,
-            &mut a_cols,
-            &mut a_vals,
-            &mut b,
-            true, // Negate for power cone
-        );
-        row_offset += x_expr.size();
-
-        // y part
-        stuff_linear_expr(
-            y_expr,
-            var_map,
-            row_offset,
-            &mut a_rows,
-            &mut a_cols,
-            &mut a_vals,
-            &mut b,
-            true, // Negate for power cone
-        );
-        row_offset += y_expr.size();
-
-        // z part
-        stuff_linear_expr(
-            z_expr,
-            var_map,
-            row_offset,
-            &mut a_rows,
-            &mut a_cols,
-            &mut a_vals,
-            &mut b,
-            true, // Negate for power cone
-        );
-        row_offset += z_expr.size();
-    }
-
-    let a = csc_from_triplets(total_rows, n, a_rows, a_cols, a_vals);
-
+    let (a, b, constraint_rows) = assembly.finish();
     (a, b, cone_dims, constraint_rows)
 }
 
-/// Stuff a single linear expression into A and b.
-///
-/// The LinExpr represents: expr = sum_i(A_i * x_i) + constant
-///
-/// For Zero cone (equality): expr = 0
-///   - Clarabel form: Ax = b
-///   - We have: Ax + constant = 0, so Ax = -constant
-///   - A = coeffs, b = -constant
-///
-/// For NonNeg cone: expr >= 0
-///   - Clarabel form: Ax + s = b, s >= 0 gives Ax <= b
-///   - We want: Ax + constant >= 0, i.e., -Ax <= constant
-///   - A = -coeffs, b = constant
-///
-/// This function uses the convention where negate=false for Zero cone
-/// and negate=true for NonNeg cone (handled by caller negating the expr).
-#[allow(clippy::too_many_arguments)]
-fn stuff_linear_expr(
-    expr: &LinExpr,
-    var_map: &VariableMap,
+/// Shared matrix buffers and row accounting for cone constraint assembly.
+struct ConstraintAssembly<'a> {
+    var_map: &'a VariableMap,
+    a_rows: Vec<usize>,
+    a_cols: Vec<usize>,
+    a_vals: Vec<f64>,
+    b: Vec<f64>,
     row_offset: usize,
-    a_rows: &mut Vec<usize>,
-    a_cols: &mut Vec<usize>,
-    a_vals: &mut Vec<f64>,
-    b: &mut [f64],
-    negate: bool,
-) {
-    let sign = if negate { -1.0 } else { 1.0 };
+    constraint_rows: Vec<Range<usize>>,
+}
 
-    // Add coefficients to A (possibly negated)
-    for (var_id, coeff) in &expr.coeffs {
-        if let Some((col_start, _)) = var_map.get(*var_id) {
-            for (row, col, val) in coeff.triplet_iter() {
-                a_rows.push(row_offset + row);
-                a_cols.push(col_start + col);
-                a_vals.push(*val * sign);
-            }
+impl<'a> ConstraintAssembly<'a> {
+    fn new(var_map: &'a VariableMap, total_rows: usize, num_constraints: usize) -> Self {
+        Self {
+            var_map,
+            a_rows: Vec::new(),
+            a_cols: Vec::new(),
+            a_vals: Vec::new(),
+            b: vec![0.0; total_rows],
+            row_offset: 0,
+            constraint_rows: vec![0..0; num_constraints],
         }
     }
 
-    // Add constant to b
-    // For Zero: Ax + const = 0 => Ax = -const, so b = -const
-    // For NonNeg: -Ax <= const, so b = const (when negate=true, we use +const)
-    let size = expr.size();
-    for i in 0..expr.constant.nrows() {
-        for j in 0..expr.constant.ncols() {
-            let idx = i + j * expr.constant.nrows();
-            if idx < size {
-                let const_val = expr.constant[(i, j)];
-                // For Zero (negate=false): b = -constant
-                // For NonNeg (negate=true): b = constant
-                b[row_offset + idx] = if negate { const_val } else { -const_val };
+    fn append_constraint(&mut self, index: usize, expressions: &[&LinExpr], negate: bool) {
+        let start = self.row_offset;
+        for expr in expressions {
+            self.append_expr(expr, negate);
+        }
+        self.constraint_rows[index] = start..self.row_offset;
+    }
+
+    fn append_expr(&mut self, expr: &LinExpr, negate: bool) {
+        let sign = if negate { -1.0 } else { 1.0 };
+
+        for (var_id, coeff) in &expr.coeffs {
+            if let Some((col_start, _)) = self.var_map.get(*var_id) {
+                for (row, col, val) in coeff.triplet_iter() {
+                    self.a_rows.push(self.row_offset + row);
+                    self.a_cols.push(col_start + col);
+                    self.a_vals.push(*val * sign);
+                }
             }
         }
+
+        let size = expr.size();
+        for i in 0..expr.constant.nrows() {
+            for j in 0..expr.constant.ncols() {
+                let idx = i + j * expr.constant.nrows();
+                if idx < size {
+                    let value = expr.constant[(i, j)];
+                    self.b[self.row_offset + idx] = if negate { value } else { -value };
+                }
+            }
+        }
+        self.row_offset += size;
+    }
+
+    fn finish(self) -> (CscMatrix<f64>, Vec<f64>, Vec<Range<usize>>) {
+        let a = csc_from_triplets(
+            self.b.len(),
+            self.var_map.total_vars,
+            self.a_rows,
+            self.a_cols,
+            self.a_vals,
+        );
+        (a, self.b, self.constraint_rows)
     }
 }
 
@@ -462,6 +323,78 @@ mod tests {
     use super::*;
     use crate::expr::ExprId;
     use nalgebra::DMatrix;
+
+    #[test]
+    fn test_mixed_cone_slacks_preserve_variables_and_row_mapping() {
+        let x_id = ExprId::new();
+        let t_id = ExprId::new();
+        let x_shape = Shape::matrix(2, 3);
+        let x = LinExpr::variable(x_id, x_shape.clone());
+        let t = LinExpr::variable(t_id, Shape::scalar());
+        let shifted_x = x.add(&LinExpr::constant(DMatrix::from_column_slice(
+            2,
+            3,
+            &[10.0, 20.0, 30.0, 40.0, 50.0, 60.0],
+        )));
+        let constraints = vec![
+            ConeConstraint::PowerCone {
+                x: t.add(&LinExpr::scalar(1.0)),
+                y: t.add(&LinExpr::scalar(2.0)),
+                z: t.add(&LinExpr::scalar(3.0)),
+                alpha: 0.5,
+            },
+            ConeConstraint::NonNeg {
+                a: shifted_x.clone(),
+            },
+            ConeConstraint::SOC {
+                t: t.add(&LinExpr::scalar(1.0)),
+                x,
+            },
+            ConeConstraint::ExpCone {
+                x: t.clone(),
+                y: t.add(&LinExpr::scalar(1.0)),
+                z: t.add(&LinExpr::scalar(2.0)),
+            },
+            ConeConstraint::Zero { a: shifted_x },
+            // Shape::size reserves one element even for a zero dimension.
+            ConeConstraint::NonNeg {
+                a: LinExpr::zeros(Shape::vector(0)),
+            },
+        ];
+        let objective = QuadExpr::from_linear(LinExpr::scalar(0.0));
+        let stuffed = stuff_problem(
+            &objective,
+            &constraints,
+            &[(x_id, x_shape), (t_id, Shape::scalar())],
+        );
+
+        // Recover s = b - A x using column-major matrix variable values.
+        let primal = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0];
+        let mut slack = stuffed.b.clone();
+        for (row, col, value) in stuffed.a.triplet_iter() {
+            slack[row] -= value * primal[col];
+        }
+        let expected: &[&[f64]] = &[
+            &[8.0, 9.0, 10.0],
+            &[11.0, 22.0, 33.0, 44.0, 55.0, 66.0],
+            &[8.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            &[7.0, 8.0, 9.0],
+            &[-11.0, -22.0, -33.0, -44.0, -55.0, -66.0],
+            &[0.0],
+        ];
+        assert_eq!(
+            stuffed.constraint_rows,
+            vec![23..26, 6..12, 13..20, 20..23, 0..6, 12..13]
+        );
+        assert_eq!(stuffed.cone_dims.zero, 6);
+        assert_eq!(stuffed.cone_dims.nonneg, 7);
+        assert_eq!(stuffed.cone_dims.soc, vec![7]);
+        assert_eq!(stuffed.cone_dims.exp, 1);
+        assert_eq!(stuffed.cone_dims.power, vec![0.5]);
+        for (rows, expected_slack) in stuffed.constraint_rows.iter().zip(expected) {
+            assert_eq!(&slack[rows.clone()], *expected_slack);
+        }
+    }
 
     #[test]
     fn test_constraint_rows_recover_original_cone_constants() {
