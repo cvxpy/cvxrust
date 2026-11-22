@@ -1,3 +1,8 @@
+/*
+Copyright 2026 CVXRust Authors
+SPDX-License-Identifier: Apache-2.0
+*/
+
 //! DCP (Disciplined Convex Programming) analysis.
 //!
 //! This module provides the core DCP analysis functionality:

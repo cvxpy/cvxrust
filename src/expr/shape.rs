@@ -1,3 +1,8 @@
+/*
+Copyright 2026 CVXRust Authors
+SPDX-License-Identifier: Apache-2.0
+*/
+
 //! Shape representation for expressions.
 //!
 //! Shapes follow NumPy conventions:

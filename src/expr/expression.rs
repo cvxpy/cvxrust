@@ -1,3 +1,8 @@
+/*
+Copyright 2026 CVXRust Authors
+SPDX-License-Identifier: Apache-2.0
+*/
+
 //! Core expression types for cvxrust.
 //!
 //! The `Expr` enum represents all possible expressions in the DCP framework.
@@ -6,9 +11,8 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use nalgebra::DMatrix;
-use nalgebra_sparse::CscMatrix;
-
+pub use super::array::Array;
+pub use super::indexing::{AxisIndex, IndexSpec};
 use super::shape::Shape;
 
 /// Unique identifier for expressions.
@@ -31,128 +35,6 @@ impl ExprId {
 impl Default for ExprId {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-/// Efficient array storage (dense or sparse).
-#[derive(Debug, Clone)]
-pub enum Array {
-    /// Dense matrix storage.
-    Dense(DMatrix<f64>),
-    /// Sparse CSC matrix storage.
-    Sparse(CscMatrix<f64>),
-    /// Scalar value.
-    Scalar(f64),
-}
-
-impl Array {
-    /// Get the shape of the array.
-    pub fn shape(&self) -> Shape {
-        match self {
-            Array::Dense(m) => Shape::matrix(m.nrows(), m.ncols()),
-            Array::Sparse(m) => Shape::matrix(m.nrows(), m.ncols()),
-            Array::Scalar(_) => Shape::scalar(),
-        }
-    }
-
-    /// Get the total number of elements.
-    pub fn size(&self) -> usize {
-        match self {
-            Array::Dense(m) => m.nrows() * m.ncols(),
-            Array::Sparse(m) => m.nrows() * m.ncols(),
-            Array::Scalar(_) => 1,
-        }
-    }
-
-    /// Try to get as a scalar value.
-    pub fn as_scalar(&self) -> Option<f64> {
-        match self {
-            Array::Scalar(v) => Some(*v),
-            Array::Dense(m) if m.nrows() == 1 && m.ncols() == 1 => Some(m[(0, 0)]),
-            _ => None,
-        }
-    }
-
-    /// Check if all elements are non-negative.
-    pub fn is_nonneg(&self) -> bool {
-        match self {
-            Array::Scalar(v) => *v >= 0.0,
-            Array::Dense(m) => m.iter().all(|&v| v >= 0.0),
-            Array::Sparse(m) => m.values().iter().all(|&v| v >= 0.0),
-        }
-    }
-
-    /// Check if all elements are non-positive.
-    pub fn is_nonpos(&self) -> bool {
-        match self {
-            Array::Scalar(v) => *v <= 0.0,
-            Array::Dense(m) => m.iter().all(|&v| v <= 0.0),
-            Array::Sparse(m) => {
-                // For sparse, zeros are implicitly non-positive
-                m.values().iter().all(|&v| v <= 0.0)
-            }
-        }
-    }
-
-    /// Check if the matrix is positive semi-definite (for symmetric matrices).
-    pub fn is_psd(&self) -> Option<bool> {
-        match self {
-            Array::Scalar(v) => Some(*v >= 0.0),
-            Array::Dense(m) => {
-                if m.nrows() != m.ncols() {
-                    return None;
-                }
-                // Check symmetry first
-                let n = m.nrows();
-                for i in 0..n {
-                    for j in (i + 1)..n {
-                        if (m[(i, j)] - m[(j, i)]).abs() > 1e-10 {
-                            return None;
-                        }
-                    }
-                }
-                // Check eigenvalues (simple approach using Cholesky)
-                Some(m.clone().cholesky().is_some())
-            }
-            Array::Sparse(_) => {
-                // For sparse, would need to convert to dense or use specialized method
-                None
-            }
-        }
-    }
-
-    /// Create from a scalar.
-    pub fn from_scalar(v: f64) -> Self {
-        Array::Scalar(v)
-    }
-
-    /// Create from a vector.
-    pub fn from_vec(v: Vec<f64>) -> Self {
-        let n = v.len();
-        Array::Dense(DMatrix::from_vec(n, 1, v))
-    }
-
-    /// Create from a dense matrix.
-    pub fn from_matrix(m: DMatrix<f64>) -> Self {
-        Array::Dense(m)
-    }
-}
-
-impl From<f64> for Array {
-    fn from(v: f64) -> Self {
-        Array::Scalar(v)
-    }
-}
-
-impl From<Vec<f64>> for Array {
-    fn from(v: Vec<f64>) -> Self {
-        Array::from_vec(v)
-    }
-}
-
-impl From<DMatrix<f64>> for Array {
-    fn from(m: DMatrix<f64>) -> Self {
-        Array::Dense(m)
     }
 }
 
@@ -184,78 +66,6 @@ impl ConstantData {
     /// Get the shape of the constant.
     pub fn shape(&self) -> Shape {
         self.value.shape()
-    }
-}
-
-/// Selector for one axis of an indexing operation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AxisIndex {
-    /// Select a single index and drop this axis.
-    Index(usize),
-    /// Select a half-open range and preserve this axis.
-    Slice(usize, usize),
-    /// Select the entire axis and preserve it.
-    All,
-}
-
-/// Specification for indexing operations.
-#[derive(Debug, Clone)]
-pub struct IndexSpec {
-    /// Ranges for each dimension: (start, stop, step).
-    /// None means take the whole dimension.
-    pub ranges: Vec<Option<(usize, usize, usize)>>,
-    /// Whether each indexed dimension was selected by an integer index.
-    pub drop_axes: Vec<bool>,
-}
-
-impl IndexSpec {
-    /// Create an index spec for a single element.
-    pub fn element(indices: Vec<usize>) -> Self {
-        let len = indices.len();
-        IndexSpec {
-            ranges: indices.into_iter().map(|i| Some((i, i + 1, 1))).collect(),
-            drop_axes: vec![true; len],
-        }
-    }
-
-    /// Create an index spec for a range.
-    pub fn range(start: usize, stop: usize) -> Self {
-        IndexSpec {
-            ranges: vec![Some((start, stop, 1))],
-            drop_axes: vec![false],
-        }
-    }
-
-    /// Create an index spec that takes everything.
-    pub fn all() -> Self {
-        IndexSpec {
-            ranges: vec![None],
-            drop_axes: vec![false],
-        }
-    }
-
-    /// Compute the output shape when this spec is applied to a base shape.
-    pub fn output_shape(&self, base: &Shape) -> Shape {
-        let mut new_dims = Vec::new();
-        for i in 0..base.ndim() {
-            let range = self.ranges.get(i).copied().flatten();
-            let drop_axis = self.drop_axes.get(i).copied().unwrap_or(false);
-            match range {
-                Some((start, stop, step)) => {
-                    let size = (stop - start).div_ceil(step);
-                    if !drop_axis {
-                        new_dims.push(size);
-                    }
-                }
-                None => new_dims.push(base.dims()[i]),
-            }
-        }
-
-        if new_dims.is_empty() {
-            Shape::scalar()
-        } else {
-            Shape::from_dims(new_dims)
-        }
     }
 }
 
@@ -468,80 +278,10 @@ impl Expr {
     /// Collect all variables in this expression.
     pub fn variables(&self) -> Vec<ExprId> {
         let mut vars = Vec::new();
-        self.collect_variables(&mut vars);
+        self.visit_variables(&mut |variable| vars.push(variable.id));
         vars.sort_by_key(|id| id.0);
         vars.dedup();
         vars
-    }
-
-    fn collect_variables(&self, vars: &mut Vec<ExprId>) {
-        match self {
-            Expr::Variable(v) => vars.push(v.id),
-            Expr::Constant(_) => {}
-
-            // Affine - recurse
-            Expr::Add(a, b) | Expr::Mul(a, b) | Expr::MatMul(a, b) => {
-                a.collect_variables(vars);
-                b.collect_variables(vars);
-            }
-            Expr::Neg(a)
-            | Expr::Promote(a, _)
-            | Expr::Sum(a, _)
-            | Expr::Reshape(a, _)
-            | Expr::Index(a, _)
-            | Expr::Transpose(a)
-            | Expr::Trace(a) => {
-                a.collect_variables(vars);
-            }
-            Expr::VStack(exprs) | Expr::HStack(exprs) => {
-                for e in exprs {
-                    e.collect_variables(vars);
-                }
-            }
-
-            // Nonlinear
-            Expr::Norm1(a)
-            | Expr::Norm2(a)
-            | Expr::NormInf(a)
-            | Expr::Abs(a)
-            | Expr::Pos(a)
-            | Expr::NegPart(a)
-            | Expr::SumSquares(a) => {
-                a.collect_variables(vars);
-            }
-            Expr::Maximum(exprs) | Expr::Minimum(exprs) => {
-                for e in exprs {
-                    e.collect_variables(vars);
-                }
-            }
-            Expr::QuadForm(x, p) | Expr::QuadOverLin(x, p) => {
-                x.collect_variables(vars);
-                p.collect_variables(vars);
-            }
-            // Exponential cone atoms
-            Expr::Exp(a) | Expr::Log(a) | Expr::Entropy(a) | Expr::Power(a, _) => {
-                a.collect_variables(vars);
-            }
-            // Additional affine atoms
-            Expr::Cumsum(a, _) | Expr::Diag(a) => {
-                a.collect_variables(vars);
-            }
-        }
-    }
-}
-
-impl std::ops::Index<(usize, usize)> for Array {
-    type Output = f64;
-
-    fn index(&self, (row, col): (usize, usize)) -> &f64 {
-        match self {
-            Array::Dense(m) => &m[(row, col)],
-            Array::Scalar(v) => {
-                assert!(row == 0 && col == 0, "scalar index out of bounds");
-                v
-            }
-            Array::Sparse(_) => panic!("use Array::Dense for indexing"),
-        }
     }
 }
 
@@ -573,21 +313,6 @@ mod tests {
         let id1 = ExprId::new();
         let id2 = ExprId::new();
         assert_ne!(id1, id2);
-    }
-
-    #[test]
-    fn test_array_scalar() {
-        let arr = Array::Scalar(5.0);
-        assert_eq!(arr.as_scalar(), Some(5.0));
-        assert!(arr.is_nonneg());
-        assert!(!arr.is_nonpos());
-    }
-
-    #[test]
-    fn test_array_from_vec() {
-        let arr = Array::from_vec(vec![1.0, 2.0, 3.0]);
-        assert_eq!(arr.shape(), Shape::matrix(3, 1));
-        assert!(arr.is_nonneg());
     }
 
     #[test]

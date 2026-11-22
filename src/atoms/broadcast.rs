@@ -1,3 +1,8 @@
+/*
+Copyright 2026 CVXRust Authors
+SPDX-License-Identifier: Apache-2.0
+*/
+
 //! Internal broadcasting helpers for atom construction and canonicalization.
 
 use crate::atoms::affine::{matmul, promote};

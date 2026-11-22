@@ -1,3 +1,8 @@
+/*
+Copyright 2026 CVXRust Authors
+SPDX-License-Identifier: Apache-2.0
+*/
+
 //! Sparse matrix utilities.
 //!
 //! Helper functions for working with nalgebra-sparse matrices.

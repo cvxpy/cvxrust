@@ -1,3 +1,8 @@
+/*
+Copyright 2026 CVXRust Authors
+SPDX-License-Identifier: Apache-2.0
+*/
+
 //! Expression types and creation utilities.
 //!
 //! This module provides the core expression types for building optimization problems:
@@ -6,10 +11,14 @@
 //! - Variable creation via `variable()` and `VariableBuilder`
 //! - Constant creation via `constant()` and related functions
 
+mod array;
 pub mod constant;
 pub mod eval;
 pub mod expression;
+mod indexing;
+mod operators;
 pub mod shape;
+mod traversal;
 pub mod variable;
 
 // Re-export main types

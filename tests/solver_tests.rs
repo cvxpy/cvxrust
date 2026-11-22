@@ -1,3 +1,8 @@
+/*
+Copyright 2026 CVXRust Authors
+SPDX-License-Identifier: Apache-2.0
+*/
+
 use cvxrust::atoms::{index, indexc, select, slice, slicec};
 use cvxrust::prelude::*;
 use nalgebra::DMatrix;

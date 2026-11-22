@@ -1,3 +1,8 @@
+/*
+Copyright 2026 CVXRust Authors
+SPDX-License-Identifier: Apache-2.0
+*/
+
 //! Problem definition and solving API.
 //!
 //! The `Problem` struct represents an optimization problem with:
@@ -13,6 +18,7 @@
 
 use std::sync::Arc;
 
+use crate::canon::constraints::canonicalize_constraint;
 use crate::canon::{ConeConstraint, VariableDomains, canonicalize};
 use crate::constraints::Constraint;
 use crate::error::{CvxError, Result};
@@ -114,52 +120,11 @@ impl Problem {
         result
     }
 
-    /// Recursively collect variable shapes from an expression.
+    /// Collect variable shapes in expression order, retaining the last occurrence.
     fn collect_variable_shapes(expr: &Expr, shapes: &mut std::collections::HashMap<ExprId, Shape>) {
-        match expr {
-            Expr::Variable(v) => {
-                shapes.insert(v.id, v.shape.clone());
-            }
-            Expr::Constant(_) => {}
-            Expr::Add(a, b) | Expr::Mul(a, b) | Expr::MatMul(a, b) => {
-                Self::collect_variable_shapes(a, shapes);
-                Self::collect_variable_shapes(b, shapes);
-            }
-            Expr::Neg(a)
-            | Expr::Promote(a, _)
-            | Expr::Sum(a, _)
-            | Expr::Reshape(a, _)
-            | Expr::Index(a, _)
-            | Expr::Transpose(a)
-            | Expr::Trace(a)
-            | Expr::Norm1(a)
-            | Expr::Norm2(a)
-            | Expr::NormInf(a)
-            | Expr::Abs(a)
-            | Expr::Pos(a)
-            | Expr::NegPart(a)
-            | Expr::SumSquares(a)
-            | Expr::Exp(a)
-            | Expr::Log(a)
-            | Expr::Entropy(a)
-            | Expr::Power(a, _)
-            | Expr::Cumsum(a, _)
-            | Expr::Diag(a) => {
-                Self::collect_variable_shapes(a, shapes);
-            }
-            Expr::VStack(exprs)
-            | Expr::HStack(exprs)
-            | Expr::Maximum(exprs)
-            | Expr::Minimum(exprs) => {
-                for e in exprs {
-                    Self::collect_variable_shapes(e, shapes);
-                }
-            }
-            Expr::QuadForm(a, b) | Expr::QuadOverLin(a, b) => {
-                Self::collect_variable_shapes(a, shapes);
-                Self::collect_variable_shapes(b, shapes);
-            }
-        }
+        expr.visit_variables(&mut |variable| {
+            shapes.insert(variable.id, variable.shape.clone());
+        });
     }
 
     /// Solve the problem with default settings.
@@ -318,63 +283,12 @@ impl ProblemBuilder {
     }
 }
 
-/// Result of canonicalizing a constraint.
-struct ConstraintCanonResult {
-    /// The user constraint's cone followed by any auxiliary cones.
-    cone_constraints: Vec<ConeConstraint>,
-    aux_vars: Vec<(ExprId, Shape)>,
-}
-
-/// Canonicalize a user constraint into cone constraints and auxiliary variables.
-fn canonicalize_constraint(
-    constraint: &Constraint,
-    domains: &mut VariableDomains,
-) -> ConstraintCanonResult {
-    match constraint {
-        Constraint::Zero(expr) => {
-            let canon = canonicalize(expr, false, domains);
-            let lin = canon.expr.as_linear().clone();
-            let mut cone_constraints = vec![ConeConstraint::Zero { a: lin }];
-            cone_constraints.extend(canon.constraints);
-            ConstraintCanonResult {
-                cone_constraints,
-                aux_vars: canon.aux_vars,
-            }
-        }
-        Constraint::NonNeg(expr) => {
-            let canon = canonicalize(expr, false, domains);
-            let lin = canon.expr.as_linear().clone();
-            let mut cone_constraints = vec![ConeConstraint::NonNeg { a: lin }];
-            cone_constraints.extend(canon.constraints);
-            ConstraintCanonResult {
-                cone_constraints,
-                aux_vars: canon.aux_vars,
-            }
-        }
-        Constraint::SOC { t, x } => {
-            let t_canon = canonicalize(t, false, domains);
-            let x_canon = canonicalize(x, false, domains);
-            let t_lin = t_canon.expr.as_linear().clone();
-            let x_lin = x_canon.expr.as_linear().clone();
-            let mut cone_constraints = vec![ConeConstraint::SOC { t: t_lin, x: x_lin }];
-            cone_constraints.extend(t_canon.constraints);
-            cone_constraints.extend(x_canon.constraints);
-            let mut aux_vars = t_canon.aux_vars;
-            aux_vars.extend(x_canon.aux_vars);
-            ConstraintCanonResult {
-                cone_constraints,
-                aux_vars,
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::atoms::{norm2, sum};
     use crate::constraints::ConstraintExt;
-    use crate::expr::{constant, variable};
+    use crate::expr::{VariableData, constant, variable};
     use crate::solver::SolveStatus;
 
     #[test]
@@ -382,6 +296,45 @@ mod tests {
         let x = variable(5);
         let problem = Problem::minimize(sum(&x)).build();
         assert!(problem.is_dcp());
+    }
+
+    #[test]
+    fn test_variable_shapes_retain_last_occurrence_in_problem_order() {
+        let Expr::Variable(x) = variable(2) else {
+            unreachable!()
+        };
+        let y = variable(3);
+        let x_id = x.id;
+        let y_id = y.variable_id().unwrap();
+        let with_shape = |shape| Expr::Variable(VariableData { shape, ..x.clone() });
+        let objective = Expr::VStack(vec![
+            Arc::new(y),
+            Arc::new(with_shape(Shape::vector(4))),
+            Arc::new(with_shape(Shape::vector(5))),
+        ]);
+        let mut problem = Problem::minimize(sum(&objective)).build();
+        assert_eq!(
+            problem.variable_shapes(),
+            vec![(x_id, Shape::vector(5)), (y_id, Shape::vector(3))]
+        );
+
+        problem
+            .constraints
+            .push(Constraint::Zero(Arc::new(with_shape(Shape::vector(6)))));
+        assert_eq!(
+            problem.variable_shapes(),
+            vec![(x_id, Shape::vector(6)), (y_id, Shape::vector(3))]
+        );
+
+        problem.constraints.push(Constraint::soc(
+            with_shape(Shape::scalar()),
+            with_shape(Shape::vector(7)),
+        ));
+        assert_eq!(
+            problem.variable_shapes(),
+            vec![(x_id, Shape::vector(7)), (y_id, Shape::vector(3))]
+        );
+        assert_eq!(problem.variables(), vec![x_id, y_id]);
     }
 
     #[test]

@@ -1,3 +1,8 @@
+/*
+Copyright 2026 CVXRust Authors
+SPDX-License-Identifier: Apache-2.0
+*/
+
 //! LASSO (L1-Regularized Regression) Example
 //!
 //! This example demonstrates L1-regularized least squares:
