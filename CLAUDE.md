@@ -36,7 +36,7 @@ make clean    # Remove build artifacts
 
 ```rust
 /*
-Copyright 2026 CVXRust Authors
+Copyright <year> CVXRust Authors
 SPDX-License-Identifier: Apache-2.0
 */
 ```
