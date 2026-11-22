@@ -6,6 +6,7 @@
 //! - Cone constraints (ConeConstraint) for nonlinear atoms
 
 pub mod canonicalizer;
+pub(crate) mod constraints;
 pub mod lin_expr;
 
 pub use canonicalizer::{CanonExpr, CanonResult, ConeConstraint, VariableDomains, canonicalize};
