@@ -50,7 +50,7 @@ pub fn dense_to_csc(dense: &DMatrix<f64>) -> CscMatrix<f64> {
     for j in 0..dense.ncols() {
         for i in 0..dense.nrows() {
             let v = dense[(i, j)];
-            if v.abs() > 1e-15 {
+            if v != 0.0 {
                 rows.push(i);
                 cols.push(j);
                 vals.push(v);
@@ -206,6 +206,19 @@ mod tests {
         let dense = DMatrix::identity(3, 3);
         let sparse = dense_to_csc(&dense);
         assert_eq!(sparse.nrows(), 3);
+    }
+
+    #[test]
+    fn test_dense_to_csc_preserves_small_nonzero_entries() {
+        let dense = DMatrix::from_row_slice(2, 3, &[0.0, 1e-16, -1e-20, 1e-15, -0.0, 2.0]);
+        let sparse = dense_to_csc(&dense);
+        assert_eq!(sparse.nnz(), 4);
+        approx::assert_relative_eq!(
+            csc_to_dense(&sparse),
+            dense,
+            epsilon = 0.0,
+            max_relative = 1e-12
+        );
     }
 
     #[test]
