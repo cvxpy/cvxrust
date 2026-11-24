@@ -7,6 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 
 mod atoms;
 mod broadcasting;
+mod constants;
 mod domains;
 mod matrix;
 mod stress;
