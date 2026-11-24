@@ -70,10 +70,11 @@ pub(crate) fn analyze(array: &Array) -> Option<Analysis> {
         return Some(analyze_diagonal(matrix, scale));
     }
     for (kind, sign) in [(Definiteness::Psd, 1.0), (Definiteness::Nsd, -1.0)] {
-        let factor = balanced_psd_factor(&matrix, sign).or_else(|| {
-            let factor = (&matrix * sign).cholesky()?.l().transpose();
-            factor_matches(&matrix, sign, &factor).then_some(factor)
-        });
+        let factor = (&matrix * sign)
+            .cholesky()
+            .map(|cholesky| cholesky.l().transpose())
+            .filter(|factor| factor_matches(&matrix, sign, factor))
+            .or_else(|| balanced_psd_factor(&matrix, sign));
         if let Some(factor) = factor {
             return Some(Analysis {
                 kind,

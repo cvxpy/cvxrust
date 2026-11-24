@@ -160,6 +160,31 @@ fn singular_gram_forms_survive_permutations() {
 }
 
 #[test]
+fn singular_gram_cone_constraints() {
+    let a = DMatrix::from_row_slice(2, 3, &[4.0, -1.0, 2.0, -1.0, 5.0, 4.0]);
+    let matrix = a.transpose() * a;
+    let expected = 1.0 / 1108.0_f64.sqrt();
+    for sign in [1.0, -1.0] {
+        for p in representations(&matrix * sign) {
+            let t = variable(());
+            let z = vstack(vec![4.0 * &t, 4.0 * &t, 3.0 * &t]);
+            let q = quad_form(&z, &p);
+            let bound = if sign > 0.0 { q.le(1.0) } else { q.ge(-1.0) };
+            let solution = solve(
+                Problem::maximize(t.clone()).constraint(bound).build(),
+                expected,
+            );
+            assert_abs_diff_eq!(solution.value(&t), expected, epsilon = 1e-5);
+            assert_abs_diff_eq!(
+                q.value(&solution).as_scalar().unwrap(),
+                sign,
+                epsilon = 1e-5
+            );
+        }
+    }
+}
+
+#[test]
 fn singular_affine_maps_and_multiple_variables() {
     for sign in [1.0, -1.0] {
         for p in representations(diagonal(&[sign, 2.0 * sign, 0.0])) {
