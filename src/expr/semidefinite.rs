@@ -5,7 +5,7 @@ SPDX-License-Identifier: Apache-2.0
 
 //! Shared classification and factors for symmetric quadratic forms.
 
-use nalgebra::DMatrix;
+use nalgebra::{DMatrix, DVector};
 
 use super::{Array, symmetric_part};
 use crate::sparse::csc_to_dense;
@@ -114,20 +114,90 @@ fn analyze_diagonal(mut matrix: DMatrix<f64>, scale: f64) -> Analysis {
     }
 }
 
+struct SpectralBlock {
+    indices: Vec<usize>,
+    scale: f64,
+    values: DVector<f64>,
+    vectors: DMatrix<f64>,
+}
+
+fn spectral_blocks(matrix: &DMatrix<f64>, max_iterations: usize) -> Option<Vec<SpectralBlock>> {
+    let n = matrix.nrows();
+    let mut visited = vec![false; n];
+    let mut blocks = Vec::new();
+    for start in 0..n {
+        if visited[start] {
+            continue;
+        }
+        let mut indices = vec![start];
+        visited[start] = true;
+        let mut cursor = 0;
+        while cursor < indices.len() {
+            let i = indices[cursor];
+            for j in 0..n {
+                if !visited[j] && matrix[(i, j)] != 0.0 {
+                    visited[j] = true;
+                    indices.push(j);
+                }
+            }
+            cursor += 1;
+        }
+        let block = DMatrix::from_fn(indices.len(), indices.len(), |i, j| {
+            matrix[(indices[i], indices[j])]
+        });
+        let scale = block.amax();
+        let (values, vectors) = if indices.len() == 1 {
+            (
+                DVector::from_element(
+                    1,
+                    if scale == 0.0 {
+                        0.0
+                    } else {
+                        block[(0, 0)] / scale
+                    },
+                ),
+                DMatrix::identity(1, 1),
+            )
+        } else {
+            // Disconnected blocks can have very different coefficient scales.
+            let eigen = block
+                .map(|value| value / scale)
+                .try_symmetric_eigen(f64::EPSILON, max_iterations)?;
+            (eigen.eigenvalues, eigen.eigenvectors)
+        };
+        if !values
+            .iter()
+            .chain(vectors.iter())
+            .all(|value| value.is_finite())
+        {
+            return None;
+        }
+        blocks.push(SpectralBlock {
+            indices,
+            scale,
+            values,
+            vectors,
+        });
+    }
+    Some(blocks)
+}
+
 fn analyze_eigen(mut matrix: DMatrix<f64>, scale: f64, max_iterations: usize) -> Option<Analysis> {
     let n = matrix.nrows();
-    let normalized = matrix.map(|value| value / scale);
-    let eigen = normalized.try_symmetric_eigen(f64::EPSILON, max_iterations)?;
-    if !eigen
-        .eigenvalues
+    let blocks = spectral_blocks(&matrix, max_iterations)?;
+    // Classification uses the spectral radius of the whole matrix. Ratios avoid
+    // overflowing eigenvalues when a block's spectral radius exceeds f64::MAX.
+    let (min, max) = blocks
         .iter()
-        .chain(eigen.eigenvectors.iter())
-        .all(|value| value.is_finite())
-    {
-        return None;
-    }
-    let min = eigen.eigenvalues.min();
-    let max = eigen.eigenvalues.max();
+        .flat_map(|block| {
+            block
+                .values
+                .iter()
+                .map(|value| value * (block.scale / scale))
+        })
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), value| {
+            (min.min(value), max.max(value))
+        });
     let tolerance = relative_tolerance(n) * min.abs().max(max.abs());
     let kind = classify(min, max, tolerance);
     if kind == Definiteness::Indefinite {
@@ -138,25 +208,57 @@ fn analyze_eigen(mut matrix: DMatrix<f64>, scale: f64, max_iterations: usize) ->
         });
     }
     let sign = if kind == Definiteness::Psd { 1.0 } else { -1.0 };
-    let root_scale = scale.sqrt();
     let mut factor = DMatrix::zeros(n, n);
-    for k in 0..n {
-        let value = eigen.eigenvalues[k];
-        if sign * value < 0.0 {
-            // Correct only clipped eigenpairs, retaining the other matrix entries.
-            for i in 0..n {
-                for j in i..n {
-                    let correction =
-                        value * eigen.eigenvectors[(i, k)] * eigen.eigenvectors[(j, k)] * scale;
-                    let corrected = matrix[(i, j)] - correction;
-                    matrix[(i, j)] = corrected;
-                    matrix[(j, i)] = corrected;
+    for block in blocks {
+        let indices = &block.indices;
+        let size = indices.len();
+        if size == 1 {
+            let i = indices[0];
+            if sign * matrix[(i, i)] < 0.0 {
+                matrix[(i, i)] = 0.0;
+            }
+            factor[(i, i)] = matrix[(i, i)].abs().sqrt();
+            continue;
+        }
+        let root_scale = block.scale.sqrt();
+        let mut block_factor = DMatrix::zeros(size, size);
+        for k in 0..size {
+            let value = block.values[k];
+            if sign * value < 0.0 {
+                // Correct only clipped eigenpairs, retaining all other coefficients.
+                for i in 0..size {
+                    for j in i..size {
+                        let correction =
+                            value * block.vectors[(i, k)] * block.vectors[(j, k)] * block.scale;
+                        let corrected = matrix[(indices[i], indices[j])] - correction;
+                        matrix[(indices[i], indices[j])] = corrected;
+                        matrix[(indices[j], indices[i])] = corrected;
+                    }
+                }
+            } else {
+                let root = root_scale * value.abs().sqrt();
+                for j in 0..size {
+                    block_factor[(k, j)] = root * block.vectors[(j, k)];
                 }
             }
-        } else {
-            let root = root_scale * value.abs().sqrt();
-            for j in 0..n {
-                factor[(k, j)] = root * eigen.eigenvectors[(j, k)];
+        }
+        let normalized_factor = block_factor.map(|value| value / root_scale);
+        let residual = normalized_factor.transpose() * normalized_factor * sign
+            - DMatrix::from_fn(size, size, |i, j| {
+                matrix[(indices[i], indices[j])] / block.scale
+            });
+        // Check each block at its own scale, including blocks below the global
+        // clipping tolerance whose correctly signed eigenvalues must be retained.
+        let block_tolerance = relative_tolerance(size) * block.values.amax();
+        if !residual
+            .iter()
+            .all(|value| value.is_finite() && value.abs() <= 4.0 * block_tolerance)
+        {
+            return None;
+        }
+        for i in 0..size {
+            for j in 0..size {
+                factor[(indices[i], indices[j])] = block_factor[(i, j)];
             }
         }
     }
@@ -164,15 +266,6 @@ fn analyze_eigen(mut matrix: DMatrix<f64>, scale: f64, max_iterations: usize) ->
         .iter()
         .chain(factor.iter())
         .all(|value| value.is_finite())
-    {
-        return None;
-    }
-    let normalized_factor = factor.map(|value| value / root_scale);
-    let residual = normalized_factor.transpose() * normalized_factor * sign
-        - matrix.map(|value| value / scale);
-    if !residual
-        .iter()
-        .all(|value| value.is_finite() && value.abs() <= 4.0 * tolerance)
     {
         return None;
     }
