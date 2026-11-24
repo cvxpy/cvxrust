@@ -17,6 +17,7 @@ pub mod eval;
 pub mod expression;
 mod indexing;
 mod operators;
+pub(crate) mod semidefinite;
 pub mod shape;
 mod traversal;
 pub mod variable;

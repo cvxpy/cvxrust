@@ -31,9 +31,9 @@ impl CanonContext<'_> {
         b: &Expr,
         for_objective: bool,
     ) -> CanonExpr {
-        // Check if expressions are constant (no variables)
-        let a_is_const = a.variables().is_empty();
-        let b_is_const = b.variables().is_empty();
+        // Zero terms can be constant while still referencing variables with bounds.
+        let a_is_const = a.variables().is_empty() || a.curvature().is_constant();
+        let b_is_const = b.variables().is_empty() || b.curvature().is_constant();
 
         // Handle scalar multiplication first (most common case)
         if let Some(scalar) = scalar_constant_value(a) {
@@ -130,9 +130,8 @@ impl CanonContext<'_> {
     }
 
     pub(super) fn canonicalize_matmul(&mut self, a: &Expr, b: &Expr) -> CanonExpr {
-        // Check if expressions are constant (no variables, not just Constant variant)
-        let a_is_const = a.variables().is_empty();
-        let b_is_const = b.variables().is_empty();
+        let a_is_const = a.variables().is_empty() || a.curvature().is_constant();
+        let b_is_const = b.variables().is_empty() || b.curvature().is_constant();
         let result_shape = a.shape().matmul(&b.shape()).unwrap_or_else(|| {
             panic!(
                 "cannot matrix-multiply shapes {} and {}",

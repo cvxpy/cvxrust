@@ -10,6 +10,7 @@ SPDX-License-Identifier: Apache-2.0
 
 use std::sync::Arc;
 
+use crate::expr::semidefinite::{self, Definiteness};
 use crate::expr::{Array, Expr};
 
 /// Curvature of an expression.
@@ -111,30 +112,10 @@ pub enum PsdStatus {
 impl PsdStatus {
     /// Determine PSD status of an array.
     pub fn of_array(arr: &Array) -> Self {
-        match arr.is_psd() {
-            Some(true) => PsdStatus::Psd,
-            Some(false) => {
-                // Check if negative of it is PSD
-                match arr {
-                    Array::Scalar(v) => {
-                        if *v <= 0.0 {
-                            PsdStatus::Nsd
-                        } else {
-                            PsdStatus::Neither
-                        }
-                    }
-                    Array::Dense(m) => {
-                        // Check if -M is PSD
-                        if Array::Dense(-m).is_psd() == Some(true) {
-                            PsdStatus::Nsd
-                        } else {
-                            PsdStatus::Neither
-                        }
-                    }
-                    _ => PsdStatus::Neither,
-                }
-            }
-            None => PsdStatus::Neither,
+        match semidefinite::analyze(arr).map(|analysis| analysis.kind) {
+            Some(Definiteness::Zero | Definiteness::Psd) => PsdStatus::Psd,
+            Some(Definiteness::Nsd) => PsdStatus::Nsd,
+            _ => PsdStatus::Neither,
         }
     }
 }
@@ -218,14 +199,15 @@ impl Expr {
                 if !x.curvature().is_affine() {
                     return Curvature::Unknown;
                 }
-                if let Some(p_val) = p.constant_value() {
-                    match PsdStatus::of_array(p_val) {
-                        PsdStatus::Psd => Curvature::Convex,
-                        PsdStatus::Nsd => Curvature::Concave,
-                        PsdStatus::Neither => Curvature::Unknown,
-                    }
-                } else {
-                    Curvature::Unknown
+                match p
+                    .constant_value()
+                    .and_then(semidefinite::analyze)
+                    .map(|a| a.kind)
+                {
+                    Some(Definiteness::Zero) => Curvature::Constant,
+                    Some(Definiteness::Psd) => Curvature::Convex,
+                    Some(Definiteness::Nsd) => Curvature::Concave,
+                    _ => Curvature::Unknown,
                 }
             }
             Expr::SumSquares(x) => {

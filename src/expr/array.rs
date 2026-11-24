@@ -8,6 +8,7 @@ SPDX-License-Identifier: Apache-2.0
 use nalgebra::DMatrix;
 use nalgebra_sparse::CscMatrix;
 
+use super::semidefinite::{self, Definiteness};
 use super::shape::Shape;
 
 /// Form `(P + P^T) / 2` with stable averaging.
@@ -84,31 +85,13 @@ impl Array {
         }
     }
 
-    /// Check if the matrix is positive semi-definite (for symmetric matrices).
+    /// Check positive semidefiniteness within floating-point roundoff.
+    ///
+    /// Returns `None` for nonsquare, nonsymmetric, or nonfinite inputs, or if
+    /// numerical analysis fails.
     pub fn is_psd(&self) -> Option<bool> {
-        match self {
-            Array::Scalar(v) => Some(*v >= 0.0),
-            Array::Dense(m) => {
-                if m.nrows() != m.ncols() {
-                    return None;
-                }
-                // Check symmetry first
-                let n = m.nrows();
-                for i in 0..n {
-                    for j in (i + 1)..n {
-                        if (m[(i, j)] - m[(j, i)]).abs() > 1e-10 {
-                            return None;
-                        }
-                    }
-                }
-                // Use the same symmetric part as quadratic canonicalization.
-                Some(symmetric_part(m).cholesky().is_some())
-            }
-            Array::Sparse(_) => {
-                // For sparse, would need to convert to dense or use specialized method
-                None
-            }
-        }
+        semidefinite::analyze(self)
+            .map(|analysis| matches!(analysis.kind, Definiteness::Zero | Definiteness::Psd))
     }
 
     /// Create from a scalar.
@@ -178,5 +161,27 @@ mod tests {
         let arr = Array::from_vec(vec![1.0, 2.0, 3.0]);
         assert_eq!(arr.shape(), Shape::matrix(3, 1));
         assert!(arr.is_nonneg());
+    }
+
+    #[test]
+    fn test_array_semidefinite_status() {
+        use crate::dcp::PsdStatus;
+        use crate::sparse::dense_to_csc;
+
+        for (entries, psd, status) in [
+            ([1.0, 0.0], Some(true), PsdStatus::Psd),
+            ([-1.0, 0.0], Some(false), PsdStatus::Nsd),
+            ([0.0, 0.0], Some(true), PsdStatus::Psd),
+            ([1.0, -1.0], Some(false), PsdStatus::Neither),
+            ([1.0, f64::NAN], None, PsdStatus::Neither),
+        ] {
+            let matrix = DMatrix::from_diagonal(&nalgebra::DVector::from_column_slice(&entries));
+            for array in [Array::Sparse(dense_to_csc(&matrix)), Array::Dense(matrix)] {
+                assert_eq!(array.is_psd(), psd);
+                assert_eq!(PsdStatus::of_array(&array), status);
+            }
+        }
+        assert_eq!(Array::Dense(DMatrix::zeros(2, 3)).is_psd(), None);
+        assert_eq!(Array::Scalar(f64::INFINITY).is_psd(), None);
     }
 }

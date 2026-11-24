@@ -9,7 +9,10 @@ use approx::assert_abs_diff_eq;
 
 use super::*;
 use crate::atoms::{matmul, promote, quad_form, sum, sum_axis, sum_squares};
-use crate::expr::{VariableExt, constant, constant_matrix, constant_vec, variable};
+use crate::expr::{
+    VariableExt, constant, constant_dmatrix, constant_matrix, constant_sparse, constant_vec,
+    variable,
+};
 use crate::solver::stuff_problem;
 
 fn sign_attribute_domain_contains(result: &CanonResult, id: ExprId, value: f64) -> bool {
@@ -285,21 +288,83 @@ fn test_canonicalize_quad_form_constant_objective() {
 
 #[test]
 fn test_canonicalize_quad_form_zero_preserves_variable_domains() {
-    let x = variable(()).nonneg();
-    let id = x.variable_id().unwrap();
-    let objective = quad_form(&(&x + constant(2.0)), &constant(0.0));
-    for for_objective in [false, true] {
-        let result = canonicalize(&objective, for_objective, &mut VariableDomains::default());
-        assert!(result.aux_vars.is_empty());
-        assert_eq!(result.constraints.len(), 1);
-        assert!(!sign_attribute_domain_contains(&result, id, -1.0));
-        assert!(sign_attribute_domain_contains(&result, id, 0.0));
-        assert!(sign_attribute_domain_contains(&result, id, 1.0));
-        let q = result.expr.into_quadratic();
-        let stuffed = stuff_problem(&q, &[], &[(id, x.shape())]);
-        assert!(stuffed.p.values().iter().all(|v| v.abs() < 1e-10));
-        assert_abs_diff_eq!(stuffed.q[0], 0.0, epsilon = 1e-10);
-        assert_abs_diff_eq!(stuffed.objective_offset, 0.0, epsilon = 1e-10);
+    for n in [1, 2] {
+        let x = variable(n).nonneg();
+        let id = x.variable_id().unwrap();
+        let zero = DMatrix::zeros(n, n);
+        let mut matrices = vec![
+            constant_dmatrix(zero.clone()),
+            constant_sparse(dense_to_csc(&zero)),
+        ];
+        if n == 1 {
+            matrices.push(constant(0.0));
+        }
+        for p in matrices {
+            let objective = quad_form(&(&x + constant(2.0)), &p);
+            for for_objective in [false, true] {
+                let result =
+                    canonicalize(&objective, for_objective, &mut VariableDomains::default());
+                assert!(result.aux_vars.is_empty());
+                assert_eq!(result.constraints.len(), 1);
+                assert!(!sign_attribute_domain_contains(&result, id, -1.0));
+                assert!(sign_attribute_domain_contains(&result, id, 0.0));
+                assert!(sign_attribute_domain_contains(&result, id, 1.0));
+                let q = result.expr.into_quadratic();
+                let stuffed = stuff_problem(&q, &[], &[(id, x.shape())]);
+                assert!(stuffed.p.values().iter().all(|v| v.abs() < 1e-10));
+                assert!(stuffed.q.iter().all(|v| v.abs() < 1e-10));
+                assert_abs_diff_eq!(stuffed.objective_offset, 0.0, epsilon = 1e-10);
+            }
+        }
+    }
+}
+
+#[test]
+fn test_canonicalize_semidefinite_native_and_cone_agree() {
+    for matrix in [
+        DMatrix::from_row_slice(2, 2, &[1.0, 1.0, 1.0, 1.0]),
+        DMatrix::from_diagonal(&nalgebra::DVector::from_vec(vec![1.0, -1e-15])),
+    ] {
+        for sign in [1.0, -1.0] {
+            let matrix = &matrix * sign;
+            for p in [
+                constant_dmatrix(matrix.clone()),
+                constant_sparse(dense_to_csc(&matrix)),
+            ] {
+                let x = variable(2);
+                let id = x.variable_id().unwrap();
+                let expression = quad_form(&x, &p);
+                let native = canonicalize(&expression, true, &mut VariableDomains::default());
+                assert!(native.aux_vars.is_empty());
+                assert!(native.constraints.is_empty());
+                let q = native.expr.into_quadratic();
+                let native_matrix = csc_to_dense(&q.quad_coeffs[&(id, id)]);
+
+                let cone = canonicalize(&expression, false, &mut VariableDomains::default());
+                let soc_x = cone
+                    .constraints
+                    .iter()
+                    .find_map(|constraint| match constraint {
+                        ConeConstraint::SOC { x, .. } => Some(x),
+                        _ => None,
+                    })
+                    .unwrap();
+                // The SOC vector is [t - 1; 2 R x].
+                let coefficients = csc_to_dense(&soc_x.coeffs[&id]);
+                let factor = coefficients.rows(1, coefficients.nrows() - 1) * 0.5;
+                assert_abs_diff_eq!(
+                    native_matrix,
+                    factor.transpose() * factor * sign,
+                    epsilon = 1e-14
+                );
+                let auxiliary = cone.aux_vars[0].0;
+                assert_abs_diff_eq!(
+                    csc_to_dense(&cone.expr.as_linear().coeffs[&auxiliary])[(0, 0)],
+                    sign,
+                    epsilon = 1e-14
+                );
+            }
+        }
     }
 }
 
