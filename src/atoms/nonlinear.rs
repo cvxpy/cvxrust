@@ -185,12 +185,13 @@ pub fn min2(a: &Expr, b: &Expr) -> Expr {
 // Quadratic atoms
 // ============================================================================
 
-/// Quadratic form: x' P x.
+/// Quadratic form xᵀPx.
 ///
-/// Properties:
-/// - Curvature: Convex if P is PSD, Concave if P is NSD
-/// - Sign: Non-negative if P is PSD, Non-positive if P is NSD
-/// - Arguments: x must be affine, P must be constant symmetric
+/// `x` must be affine and scalar, a vector, or a column matrix. `P` must be a
+/// matching constant symmetric matrix; scalar `P` denotes a 1×1 matrix.
+/// Convex and nonnegative for PSD `P`; concave and nonpositive for NSD `P`.
+///
+/// DCP checking supports scalar constants and definite dense matrices.
 pub fn quad_form(x: &Expr, p: &Expr) -> Expr {
     Expr::QuadForm(Arc::new(x.clone()), Arc::new(p.clone()))
 }

@@ -7,7 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 //!
 //! After canonicalization, expressions are represented in standard form:
 //! - Linear: sum_i(A_i * x_i) + b
-//! - Quadratic: (1/2) x' P x + q' x + r
+//! - Quadratic: x' P x + q' x + r
 
 use std::collections::HashMap;
 
@@ -239,13 +239,13 @@ fn coeff_for_size(
     );
 }
 
-/// A quadratic expression: (1/2) x' P x + q' x + r
+/// A quadratic expression: x' P x + q' x + r.
 ///
-/// Used for quadratic objectives in QP problems.
+/// Stuffing doubles `P` for Clarabel's (1/2) x' P x convention.
 #[derive(Debug, Clone)]
 pub struct QuadExpr {
-    /// Quadratic term: P matrix (symmetric, in packed form by variable).
-    /// Maps (var_i, var_j) -> coefficient for x_i' P_ij x_j term.
+    /// Symmetric P, stored as (var_i, var_j) -> P_ij.
+    /// Both (i, j) and (j, i) blocks are stored.
     pub quad_coeffs: HashMap<(ExprId, ExprId), CscMatrix<f64>>,
     /// Linear term: q' x
     pub linear: LinExpr,
