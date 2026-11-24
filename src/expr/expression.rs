@@ -75,18 +75,18 @@ impl ConstantData {
 /// This allows building expression DAGs without copying.
 #[derive(Debug, Clone)]
 pub enum Expr {
-    // ========== Leaf nodes ==========
+    // Leaf nodes
     /// A decision variable.
     Variable(VariableData),
     /// A constant value.
     Constant(ConstantData),
 
-    // ========== Affine atoms ==========
-    /// Addition: a + b
+    // Affine atoms
+    /// Addition: `a + b`.
     Add(Arc<Expr>, Arc<Expr>),
-    /// Negation: -a
+    /// Negation: `-a`.
     Neg(Arc<Expr>),
-    /// Multiplication: a * b (scalar or matrix)
+    /// Multiplication: `a * b` (scalar or matrix).
     Mul(Arc<Expr>, Arc<Expr>),
     /// Promote a scalar-like expression to a larger shape.
     Promote(Arc<Expr>, Shape),
@@ -96,9 +96,9 @@ pub enum Expr {
     Reshape(Arc<Expr>, Shape),
     /// Indexing/slicing.
     Index(Arc<Expr>, IndexSpec),
-    /// Vertical stack: [a; b; ...]
+    /// Vertical stack: `[a; b; ...]`.
     VStack(Vec<Arc<Expr>>),
-    /// Horizontal stack: [a, b, ...]
+    /// Horizontal stack: `[a, b, ...]`.
     HStack(Vec<Arc<Expr>>),
     /// Transpose.
     Transpose(Arc<Expr>),
@@ -107,39 +107,39 @@ pub enum Expr {
     /// Matrix-vector or matrix-matrix multiplication.
     MatMul(Arc<Expr>, Arc<Expr>),
 
-    // ========== Nonlinear atoms ==========
-    /// L1 norm: ||x||_1
+    // Nonlinear atoms
+    /// L1 norm: `||x||_1`.
     Norm1(Arc<Expr>),
-    /// L2 norm: ||x||_2
+    /// L2 norm: `||x||_2`.
     Norm2(Arc<Expr>),
-    /// Infinity norm: ||x||_inf
+    /// Infinity norm: `||x||_{inf}`.
     NormInf(Arc<Expr>),
     /// Absolute value (elementwise).
     Abs(Arc<Expr>),
-    /// Positive part: max(x, 0) (elementwise).
+    /// Positive part: `max(x, 0)` (elementwise).
     Pos(Arc<Expr>),
-    /// Negative part: max(-x, 0) (elementwise).
+    /// Negative part: `max(-x, 0)` (elementwise).
     NegPart(Arc<Expr>),
     /// Maximum of expressions.
     Maximum(Vec<Arc<Expr>>),
     /// Minimum of expressions.
     Minimum(Vec<Arc<Expr>>),
-    /// Quadratic form: x' P x
+    /// Quadratic form: `x^T P x`.
     QuadForm(Arc<Expr>, Arc<Expr>),
-    /// Sum of squares: ||x||_2^2
+    /// Sum of squares: `||x||_2^2`.
     SumSquares(Arc<Expr>),
-    /// Quadratic over linear: ||x||_2^2 / y
+    /// Quadratic over linear: `||x||_2^2 / y`.
     QuadOverLin(Arc<Expr>, Arc<Expr>),
-    /// Exponential: exp(x) (elementwise).
+    /// Exponential: `exp(x)` (elementwise).
     Exp(Arc<Expr>),
-    /// Natural logarithm: log(x) (elementwise).
+    /// Natural logarithm: `log(x)` (elementwise).
     Log(Arc<Expr>),
-    /// Entropy: -x * log(x) (elementwise).
+    /// Entropy: `-x * log(x)` (elementwise).
     Entropy(Arc<Expr>),
-    /// Power: x^p (elementwise).
+    /// Power: `x^p` (elementwise).
     Power(Arc<Expr>, f64),
 
-    // ========== Additional affine atoms ==========
+    // Additional affine atoms
     /// Cumulative sum along axis.
     Cumsum(Arc<Expr>, Option<usize>),
     /// Diagonal matrix from vector (or diagonal of matrix).

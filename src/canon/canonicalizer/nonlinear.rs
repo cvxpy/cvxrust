@@ -51,7 +51,7 @@ impl CanonContext<'_> {
     }
 
     pub(super) fn canonicalize_norm_inf(&mut self, x: &Expr) -> CanonExpr {
-        // ||x||_inf = max(|x_i|)
+        // ||x||_{inf} = max(|x_i|)
         // Introduce t >= 0, -t <= x_i <= t for all i
         let cx = self.canonicalize_expr(x, false).as_linear().clone();
         let cx = self.flatten_lin(&cx);
@@ -110,7 +110,7 @@ impl CanonContext<'_> {
     }
 
     pub(super) fn canonicalize_maximum(&mut self, exprs: &[Arc<Expr>]) -> CanonExpr {
-        // max(x1, ..., xn): Introduce t, t >= x_i for all i
+        // max(x_1, ..., x_n): Introduce t, t >= x_i for all i
         if exprs.is_empty() {
             panic!("maximum requires at least one expression");
         }
@@ -158,7 +158,7 @@ impl CanonContext<'_> {
     }
 
     pub(super) fn canonicalize_minimum(&mut self, exprs: &[Arc<Expr>]) -> CanonExpr {
-        // min(x1, ..., xn): Introduce t, t <= x_i for all i
+        // min(x_1, ..., x_n): Introduce t, t <= x_i for all i
         if exprs.is_empty() {
             panic!("minimum requires at least one expression");
         }
@@ -221,7 +221,7 @@ impl CanonContext<'_> {
             let ti = self.extract_element(&t, i);
             let one_scalar = LinExpr::scalar(1.0);
 
-            // (xi, 1, ti) in K_exp means ti >= exp(xi)
+            // (x_i, 1, t_i) in K_{exp} means t_i >= exp(x_i)
             self.constraints.push(ConeConstraint::ExpCone {
                 x: xi,
                 y: one_scalar,
@@ -248,8 +248,8 @@ impl CanonContext<'_> {
             let ti = self.extract_element(&t, i);
             let one_scalar = LinExpr::scalar(1.0);
 
-            // (ti, 1, xi) in K_exp means 1 * exp(ti/1) <= xi
-            // which simplifies to exp(ti) <= xi, so ti <= log(xi)
+            // (t_i, 1, x_i) in K_{exp} means 1 * exp(t_i/1) <= x_i
+            // which simplifies to exp(t_i) <= x_i, so t_i <= log(x_i)
             self.constraints.push(ConeConstraint::ExpCone {
                 x: ti,
                 y: one_scalar,
@@ -262,7 +262,7 @@ impl CanonContext<'_> {
 
     pub(super) fn canonicalize_entropy(&mut self, x: &Expr) -> CanonExpr {
         // entropy(x) = -x * log(x)
-        // Using exp cone: (t, x, 1) in K_exp means x * exp(t/x) <= 1
+        // Using exp cone: (t, x, 1) in K_{exp} means x * exp(t/x) <= 1
         // which gives t <= -x * log(x) = entropy(x) (hypograph)
         let cx = self.canonicalize_expr(x, false).as_linear().clone();
 
@@ -276,9 +276,9 @@ impl CanonContext<'_> {
             let ti = self.extract_element(&t, i);
             let one_scalar = LinExpr::scalar(1.0);
 
-            // (ti, xi, 1) in K_exp means xi * exp(ti/xi) <= 1
-            // i.e., exp(ti/xi) <= 1/xi, i.e., ti/xi <= -log(xi)
-            // i.e., ti <= -xi * log(xi) = entropy(xi)
+            // (t_i, x_i, 1) in K_{exp} means x_i * exp(t_i/x_i) <= 1
+            // i.e., exp(t_i/x_i) <= 1/x_i, i.e., t_i/x_i <= -log(x_i)
+            // i.e., t_i <= -x_i * log(x_i) = entropy(x_i)
             self.constraints.push(ConeConstraint::ExpCone {
                 x: ti,
                 y: xi,
@@ -320,7 +320,7 @@ impl CanonContext<'_> {
             let one_scalar = LinExpr::scalar(1.0);
 
             if p > 0.0 && p < 1.0 {
-                // x^p concave for p in (0,1): (x, 1, t) in K_pow(p) means t <= x^p
+                // x^p concave for p in (0, 1): (x, 1, t) in K_{pow}(p) means t <= x^p
                 let alpha = p;
                 self.constraints.push(ConeConstraint::PowerCone {
                     x: xi,
@@ -329,7 +329,7 @@ impl CanonContext<'_> {
                     alpha,
                 });
             } else if p > 1.0 {
-                // x^p convex for p > 1: (t, 1, x) in K_pow(1/p) means t >= x^p
+                // x^p convex for p > 1: (t, 1, x) in K_{pow}(1/p) means t >= x^p
                 let alpha = 1.0 / p;
                 self.constraints.push(ConeConstraint::PowerCone {
                     x: ti,
@@ -340,10 +340,10 @@ impl CanonContext<'_> {
             } else if p < 0.0 {
                 // x^p convex for p < 0: t >= x^p = 1/x^(-p)
                 // Equivalently: t * x^(-p) >= 1
-                // Use (t, x, 1) in K_pow(alpha) with alpha = 1/(1-p)
-                // This gives t^alpha * x^(1-alpha) >= 1
+                // Use (t, x, 1) in K_{pow}(alpha) with alpha = 1/(1-p)
+                // This gives t^(alpha) * x^(1-alpha) >= 1
                 // where alpha = 1/(1-p), 1-alpha = -p/(1-p)
-                // Raising to power (1-p): t * x^(-p) >= 1 ✓
+                // Raising to power (1-p): t * x^(-p) >= 1
                 let alpha = 1.0 / (1.0 - p);
                 self.constraints.push(ConeConstraint::PowerCone {
                     x: ti,

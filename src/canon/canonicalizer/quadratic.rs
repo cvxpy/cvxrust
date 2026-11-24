@@ -37,12 +37,12 @@ impl CanonContext<'_> {
             return CanonExpr::Linear(LinExpr::scalar(0.0));
         }
 
-        // x' P x = x' ((P + P') / 2) x.
+        // x^T P x = x^T ((P + P^T) / 2) x.
         let p_mat = symmetric_part(&p_mat);
 
         if for_objective {
-            // x = sum_i A_i v_i + b gives Q_ij = A_i' P A_j,
-            // q_i = 2 A_i' P b, and r = b' P b.
+            // x = sum_i A_i v_i + b gives Q_{ij} = A_i^T P A_j,
+            // q_i = 2 A_i^T P b, and r = b^T P b.
             let coeffs: Vec<_> = cx
                 .coeffs
                 .iter()
@@ -72,7 +72,7 @@ impl CanonContext<'_> {
             });
         }
 
-        // P = sign * R' R: use t >= ||R x||² and return sign * t.
+        // P = sign * R^T R: use t >= ||R x||_2^2 and return sign * t.
         let (sign, factor) = match p_value {
             Array::Scalar(value) => (
                 value.signum(),
@@ -111,7 +111,7 @@ impl CanonContext<'_> {
 
     fn canonicalize_sum_squares_lin(&mut self, x: &LinExpr, for_objective: bool) -> CanonExpr {
         if for_objective {
-            // ||Ax + c||² = x' A' A x + 2c' A x + ||c||².
+            // ||A x + c||_2^2 = x^T A^T A x + 2 c^T A x + ||c||_2^2.
             let vars = x.variables();
             let c = &x.constant;
 
@@ -157,7 +157,7 @@ impl CanonContext<'_> {
     }
 
     pub(super) fn canonicalize_quad_over_lin(&mut self, x: &Expr, y: &Expr) -> CanonExpr {
-        // ||x||_2^2 / y: introduce t with ||[2x; t-y]||_2 <= t+y.
+        // ||x||_2^2 / y: introduce t with ||[2 x; t - y]||_2 <= t + y.
         let cx = self.canonicalize_expr(x, false).as_linear().clone();
         let cx = self.flatten_lin(&cx);
         let cy = self.canonicalize_expr(y, false).as_linear().clone();

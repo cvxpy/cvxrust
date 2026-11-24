@@ -14,14 +14,14 @@ use cvxrust::prelude::*;
 /// A test case definition
 struct TestCase {
     name: &'static str,
-    /// Function that builds the problem and returns (problem, expected_value)
+    /// Function that builds the problem and returns `(problem, expected_value)`
     build: fn() -> (Problem, f64),
 }
 
 /// All minimize test cases
 fn minimize_test_cases() -> Vec<TestCase> {
     vec![
-        // ========== Linear Programs ==========
+        // Linear Programs
         TestCase {
             name: "sum_nonneg_constraint",
             build: || {
@@ -73,7 +73,7 @@ fn minimize_test_cases() -> Vec<TestCase> {
                 (prob, 8.0)
             },
         },
-        // ========== Norms (SOCP) ==========
+        // Norms (SOCP)
         TestCase {
             name: "norm2_equality",
             build: || {
@@ -114,7 +114,7 @@ fn minimize_test_cases() -> Vec<TestCase> {
         TestCase {
             name: "norm_inf_equality",
             build: || {
-                // minimize ||x||_inf s.t. sum(x) = 4, x in R^4
+                // minimize ||x||_{inf} s.t. sum(x) = 4, x in R^4
                 // optimal: x = [1,1,1,1], value = 1
                 let x = variable(4);
                 let prob = Problem::minimize(norm_inf(&x))
@@ -123,7 +123,7 @@ fn minimize_test_cases() -> Vec<TestCase> {
                 (prob, 1.0)
             },
         },
-        // ========== Quadratic (QP) ==========
+        // Quadratic (QP)
         TestCase {
             name: "sum_squares_equality",
             build: || {
@@ -148,7 +148,7 @@ fn minimize_test_cases() -> Vec<TestCase> {
                 (prob, 3.0)
             },
         },
-        // ========== Element-wise convex ==========
+        // Element-wise convex
         TestCase {
             name: "abs_equality",
             build: || {
@@ -175,7 +175,7 @@ fn minimize_test_cases() -> Vec<TestCase> {
                 (prob, 1.0)
             },
         },
-        // ========== Maximum/Minimum ==========
+        // Maximum/Minimum
         TestCase {
             name: "maximum_bound",
             build: || {
@@ -189,7 +189,7 @@ fn minimize_test_cases() -> Vec<TestCase> {
                 (prob, 2.0)
             },
         },
-        // ========== Multiple constraints ==========
+        // Multiple constraints
         TestCase {
             name: "box_constraints",
             build: || {
@@ -445,7 +445,7 @@ fn test_primal_values() {
     }
 }
 
-/// Test neg_part: max(-x, 0)
+/// Test `neg_part`: `max(-x, 0)`.
 #[test]
 fn test_neg_part() {
     let x = variable(3);
@@ -468,7 +468,7 @@ fn test_neg_part() {
     );
 }
 
-/// Test quad_form: x'Px with PSD P
+/// Test `quad_form`: `x^T P x` with PSD `P`.
 #[test]
 fn test_quad_form_psd() {
     use nalgebra::DMatrix;
@@ -478,12 +478,12 @@ fn test_quad_form_psd() {
     let p = constant_dmatrix(p_mat);
     let x = variable(2);
 
-    // minimize x'Px s.t. sum(x) = 1
-    // With P diagonal, this minimizes 2*x1^2 + 3*x2^2 s.t. x1 + x2 = 1
-    // Lagrangian: L = 2x1^2 + 3x2^2 + λ(x1 + x2 - 1)
-    // ∂L/∂x1 = 4x1 + λ = 0, ∂L/∂x2 = 6x2 + λ = 0
-    // x1 = -λ/4, x2 = -λ/6, x1 + x2 = 1 → -λ(1/4 + 1/6) = 1 → λ = -12/5
-    // x1 = 3/5 = 0.6, x2 = 2/5 = 0.4
+    // minimize x^T P x s.t. sum(x) = 1
+    // With P diagonal, this minimizes 2*x_1^2 + 3*x_2^2 s.t. x_1 + x_2 = 1
+    // Lagrangian: L = 2*x_1^2 + 3*x_2^2 + lambda*(x_1 + x_2 - 1)
+    // Stationarity: 4 x_1 + lambda = 0, 6 x_2 + lambda = 0
+    // x_1 = -lambda/4, x_2 = -lambda/6, so -lambda*(1/4 + 1/6) = 1 => lambda = -12/5
+    // x_1 = 3/5 = 0.6, x_2 = 2/5 = 0.4
     // value = 2*(0.6)^2 + 3*(0.4)^2 = 2*0.36 + 3*0.16 = 0.72 + 0.48 = 1.2
     let prob = Problem::minimize(quad_form(&x, &p))
         .subject_to([sum(&x).eq(constant(1.0))])
@@ -526,7 +526,7 @@ fn test_maximize_convex_not_dcp() {
     assert!(!prob.is_dcp(), "maximize(convex) should not be DCP");
 }
 
-/// Test that norm(convex) is not DCP (composition rule violation)
+/// Test that `norm(convex)` is not DCP (composition rule violation).
 #[test]
 fn test_composition_violation() {
     let x = variable(3);
@@ -538,7 +538,7 @@ fn test_composition_violation() {
     assert!(!prob.is_dcp(), "norm(norm(x)) should not be DCP");
 }
 
-/// Test affine <= convex constraint is not DCP
+/// Test that an `affine <= convex` constraint is not DCP.
 #[test]
 fn test_affine_leq_convex_not_dcp() {
     let x = variable(3);
@@ -590,7 +590,7 @@ fn test_constant_objective() {
 #[test]
 fn test_tight_constraints() {
     let x = variable(2);
-    // x1 + x2 = 3, x1 - x2 = 1 → x1 = 2, x2 = 1
+    // x_1 + x_2 = 3, x_1 - x_2 = 1 => x_1 = 2, x_2 = 1
     // minimize sum(x) = 3
     let prob = Problem::minimize(sum(&x))
         .subject_to([
@@ -637,7 +637,7 @@ fn test_variable_product_not_dcp() {
 
 #[test]
 fn test_variable_matmul_not_dcp() {
-    // x @ y is not DCP
+    // x y is not DCP
     let x = variable(3);
     let y = variable(3);
     let prod = matmul(&x, &transpose(&y));

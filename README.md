@@ -98,13 +98,13 @@ cargo doc --open
 - Element-wise: `abs`, `pos`, `neg_part`, `exp`
 - Aggregation: `maximum`, `max2`
 - Quadratic: `quad_form` (PSD), `sum_squares`, `quad_over_lin`
-- Powers: `power` (p >= 1 or p < 0)
+- Powers: `power` (`p >= 1` or `p < 0`)
 
 ### Concave Atoms
 - Aggregation: `minimum`, `min2`
 - Quadratic: `quad_form` (NSD)
 - Logarithmic: `log`, `entropy`
-- Powers: `power` (0 < p < 1), `sqrt`
+- Powers: `power` (`0 < p < 1`), `sqrt`
 
 ## Variable Construction
 
@@ -193,7 +193,7 @@ let solution = Problem::minimize(loss + lambda * reg).solve()?;
 ### Portfolio Optimization
 ```rust
 let w = variable(n);
-let risk = quad_form(&w, &sigma);  // w' * Sigma * w
+let risk = quad_form(&w, &sigma);  // w^T Sigma w
 
 let solution = Problem::minimize(risk)
     .subject_to([
@@ -212,7 +212,7 @@ if let Some(dual) = solution.constraint_dual(0) {
 ### Logistic Regression
 ```rust
 let theta = variable(n);
-// log(1 + exp(-y * X @ theta)) using log-sum-exp
+// log(1 + exp(-y * X theta)) using log-sum-exp
 let solution = Problem::minimize(log_sum_exp_loss)
     .subject_to([constraint!((norm2(&theta)) <= C)])
     .solve()?;

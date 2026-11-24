@@ -8,14 +8,14 @@ use nalgebra::DMatrix;
 
 const TOL: f64 = 1e-4;
 
-/// sum_squares(Ax - b) must be canonicalized as ||r||^2, not ||r||_2.
+/// `sum_squares(A x - b)` must be canonicalized as `||r||^2`, not `||r||_2`.
 /// The old bug used a plain SOC `||r||_2 <= t`, which minimized the L2 norm
-/// instead of its square, causing solution.value to be off by a square root.
+/// instead of its square, causing `solution.value` to be off by a square root.
 
 #[test]
 fn test_sum_squares_scalar_constrained() {
     // minimize (x - 3)^2  s.t.  x <= 1
-    // True optimum: x* = 1,  obj* = (1 - 3)^2 = 4
+    // True optimum: x^* = 1,  obj^* = (1 - 3)^2 = 4
     // Old bug would report: |1 - 3| = 2
     let x = variable(());
     let residual = x.clone() - constant(3.0);
@@ -47,7 +47,7 @@ fn test_sum_squares_scalar_constrained() {
 #[test]
 fn test_sum_squares_vector_constrained() {
     // minimize ||x - [3, 4]||^2  s.t.  x <= 2
-    // True optimum: x* = [2, 2],  obj* = (2-3)^2 + (2-4)^2 = 5
+    // True optimum: x^* = [2, 2],  obj^* = (2-3)^2 + (2-4)^2 = 5
     // Old bug would report: sqrt(5) ~= 2.236
     let x = variable(2);
     let residual = x.clone() - constant_vec(vec![3.0, 4.0]);
@@ -78,10 +78,10 @@ fn test_sum_squares_vector_constrained() {
 
 #[test]
 fn test_sum_squares_matmul_constrained() {
-    // minimize ||Ax - b||^2  s.t.  x <= 1
-    // A = [[1], [1]] (2x1), b = [2, 4], x scalar
-    // Unconstrained LS: x* = 3, obj* = (3-2)^2 + (3-4)^2 = 2
-    // With x <= 1: x* = 1, residual = [-1, -3], obj* = 1 + 9 = 10
+    // minimize ||A x - b||^2  s.t.  x <= 1
+    // A = [[1], [1]] (2 x 1), b = [2, 4], x scalar
+    // Unconstrained LS: x^* = 3, obj^* = (3-2)^2 + (3-4)^2 = 2
+    // With x <= 1: x^* = 1, residual = [-1, -3], obj^* = 1 + 9 = 10
     // Old bug would report: sqrt(10) ~= 3.162
     let a = constant_matrix(vec![1.0, 1.0], 2, 1);
     let b = constant_vec(vec![2.0, 4.0]);
@@ -115,7 +115,7 @@ fn test_sum_squares_matmul_constrained() {
 #[test]
 fn test_sum_squares_constraint_uses_square_not_norm() {
     // maximize x  s.t.  x^2 <= 4, x >= 0
-    // True optimum: x* = 2. Old bug modeled |x| <= 4 and allowed x* = 4.
+    // True optimum: x^* = 2. Old bug modeled |x| <= 4 and allowed x^* = 4.
     let x = variable(());
 
     let sol = Problem::maximize(x.clone())

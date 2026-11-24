@@ -6,8 +6,8 @@ SPDX-License-Identifier: Apache-2.0
 //! Linear and quadratic expression representations for canonicalization.
 //!
 //! After canonicalization, expressions are represented in standard form:
-//! - Linear: sum_i(A_i * x_i) + b
-//! - Quadratic: x' P x + q' x + r
+//! - Linear: `sum_i(A_i x_i) + b`
+//! - Quadratic: `x^T P x + q^T x + r`
 
 use std::collections::HashMap;
 
@@ -17,14 +17,14 @@ use nalgebra_sparse::CscMatrix;
 use crate::expr::{ExprId, Shape};
 use crate::sparse::{csc_add, csc_neg, csc_scale};
 
-/// A linear expression in standard form: sum_i(A_i * x_i) + b
+/// A linear expression in standard form: `sum_i(A_i x_i) + b`.
 ///
 /// Each term is a sparse coefficient matrix multiplied by a variable.
 /// The constant term `b` is a dense vector.
 #[derive(Debug, Clone)]
 pub struct LinExpr {
-    /// Coefficient matrices for each variable: var_id -> coefficient matrix.
-    /// The coefficient matrix A_i has shape (output_size, var_size).
+    /// Coefficient matrices for each variable: `var_id -> coefficient matrix`.
+    /// The coefficient matrix `A_i` has shape `(output_size, var_size)`.
     pub coeffs: HashMap<ExprId, CscMatrix<f64>>,
     /// Constant term (offset).
     pub constant: DMatrix<f64>,
@@ -239,17 +239,17 @@ fn coeff_for_size(
     );
 }
 
-/// A quadratic expression: x' P x + q' x + r.
+/// A quadratic expression: `x^T P x + q^T x + r`.
 ///
-/// Stuffing doubles `P` for Clarabel's (1/2) x' P x convention.
+/// Stuffing doubles `P` for Clarabel's `(1/2) x^T P x` convention.
 #[derive(Debug, Clone)]
 pub struct QuadExpr {
-    /// Symmetric P, stored as (var_i, var_j) -> P_ij.
-    /// Both (i, j) and (j, i) blocks are stored.
+    /// Symmetric `P`, stored as `(var_i, var_j) -> P_{ij}`.
+    /// Both `(i, j)` and `(j, i)` blocks are stored.
     pub quad_coeffs: HashMap<(ExprId, ExprId), CscMatrix<f64>>,
-    /// Linear term: q' x
+    /// Linear term: `q^T x`.
     pub linear: LinExpr,
-    /// Constant term: r
+    /// Constant term: `r`.
     pub constant: f64,
 }
 
@@ -272,7 +272,7 @@ impl QuadExpr {
         }
     }
 
-    /// Create a pure quadratic term: x' P x for a single variable.
+    /// Create a pure quadratic term: `x^T P x` for a single variable.
     pub fn quadratic(var_id: ExprId, p: CscMatrix<f64>) -> Self {
         let mut quad_coeffs = HashMap::new();
         quad_coeffs.insert((var_id, var_id), p);

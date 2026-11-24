@@ -7,10 +7,12 @@ SPDX-License-Identifier: Apache-2.0
 //!
 //! This example demonstrates Markowitz portfolio optimization:
 //!
-//! minimize    x' Σ x                (minimize risk)
-//! subject to  μ' x >= target        (minimum return)
-//!             sum(x) = 1            (fully invested)
-//!             x >= 0                (long-only)
+//! ```text
+//! minimize    x^T Sigma x         (minimize risk)
+//! subject to  mu^T x >= target    (minimum return)
+//!             sum(x) = 1          (fully invested)
+//!             x >= 0              (long-only)
+//! ```
 
 use cvxrust::prelude::*;
 

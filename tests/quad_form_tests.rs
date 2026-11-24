@@ -50,7 +50,7 @@ fn quad_form_issue_14_objective_sum() {
 
 #[test]
 fn quad_form_linear_maps_and_offsets() {
-    // With x[0] = 1, (Ax)'P(Ax) = 2 + 10*x[1] + 15*x[1]^2.
+    // With x[0] = 1, (A x)^T P (A x) = 2 + 10*x[1] + 15*x[1]^2.
     let x = variable(2);
     let a = constant_matrix(vec![1.0, 0.0, 2.0, 1.0], 2, 2);
     let p = constant_matrix(vec![2.0, 1.0, 1.0, 3.0], 2, 2);
@@ -80,7 +80,7 @@ fn quad_form_cross_variable_terms() {
     let y = variable(());
     let z = vstack(vec![&x + constant(1.0), &y - constant(1.0)]);
     let p = constant_matrix(vec![2.0, 1.0, 1.0, 3.0], 2, 2);
-    // P * [2, 1] = [5, 5], so z = [2, 1] minimizes z'Pz - 10*sum(z).
+    // P * [2, 1] = [5, 5], so z = [2, 1] minimizes z^T P z - 10*sum(z).
     let solution = solve(
         Problem::minimize(quad_form(&z, &p) - 10.0 * sum(&z)).build(),
         -15.0,

@@ -15,23 +15,23 @@ use crate::expr::Expr;
 /// Sign of an expression.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Sign {
-    /// Expression is always >= 0.
+    /// Expression is always `>= 0`.
     Nonnegative,
-    /// Expression is always <= 0.
+    /// Expression is always `<= 0`.
     Nonpositive,
-    /// Expression is always == 0.
+    /// Expression is always `== 0`.
     Zero,
     /// Sign is unknown.
     Unknown,
 }
 
 impl Sign {
-    /// Check if the sign is non-negative (>= 0).
+    /// Check if the sign is non-negative (`>= 0`).
     pub fn is_nonneg(self) -> bool {
         matches!(self, Sign::Nonnegative | Sign::Zero)
     }
 
-    /// Check if the sign is non-positive (<= 0).
+    /// Check if the sign is non-positive (`<= 0`).
     pub fn is_nonpos(self) -> bool {
         matches!(self, Sign::Nonpositive | Sign::Zero)
     }
@@ -52,7 +52,7 @@ impl Sign {
     }
 }
 
-/// Combine signs for addition: a + b.
+/// Combine signs for addition: `a + b`.
 pub fn add_sign(a: Sign, b: Sign) -> Sign {
     use Sign::*;
     match (a, b) {
@@ -68,7 +68,7 @@ pub fn add_sign(a: Sign, b: Sign) -> Sign {
     }
 }
 
-/// Combine signs for multiplication: a * b.
+/// Combine signs for multiplication: `a * b`.
 pub fn mul_sign(a: Sign, b: Sign) -> Sign {
     use Sign::*;
     match (a, b) {
@@ -161,7 +161,7 @@ impl Expr {
                 }
             }
             Expr::QuadForm(_, p) => {
-                // x'Px is nonneg if P is PSD, nonpos if P is NSD
+                // x^T P x is nonneg if P is PSD, nonpos if P is NSD
                 if let Some(p_val) = p.constant_value() {
                     use super::curvature::PsdStatus;
                     match PsdStatus::of_array(p_val) {

@@ -9,14 +9,14 @@ use super::TOL;
 use cvxrust::prelude::*;
 
 /// BUG #1: Sparse constants silently become zeros
-/// The canonicalizer at canonicalizer.rs:187-191 returns LinExpr::zeros() for sparse constants
+/// The canonicalizer at canonicalizer.rs:187-191 returns `LinExpr::zeros()` for sparse constants
 /// instead of properly converting them.
 #[test]
 fn test_bug_sparse_constant_becomes_zero() {
     use nalgebra_sparse::{CooMatrix, CscMatrix};
 
     // Create a simple sparse matrix with non-zero values
-    // This is a 3x1 column vector with values [1.0, 2.0, 3.0] stored as sparse
+    // This is a 3 x 1 column vector with values [1.0, 2.0, 3.0] stored as sparse
     let mut coo = CooMatrix::new(3, 1);
     coo.push(0, 0, 1.0);
     coo.push(1, 0, 2.0);
@@ -43,7 +43,7 @@ fn test_bug_sparse_constant_becomes_zero() {
     let rel_err = (value - expected).abs() / (1.0 + expected.abs());
 
     // This test will FAIL until the bug is fixed
-    // Currently value ≈ 0 because sparse constant becomes zeros
+    // Currently value ~= 0 because sparse constant becomes zeros
     assert!(
         rel_err < TOL,
         "BUG: Sparse constant became zeros! Expected {}, got {} (rel_err={})",
@@ -53,23 +53,23 @@ fn test_bug_sparse_constant_becomes_zero() {
     );
 }
 
-/// BUG #2: Right matrix multiplication x @ A doesn't actually multiply
-/// The canonicalizer at canonicalizer.rs:263-266 just returns a.clone() without multiplying.
+/// BUG #2: Right matrix multiplication `x A` doesn't actually multiply
+/// The canonicalizer at canonicalizer.rs:263-266 just returns `a.clone()` without multiplying.
 #[test]
 fn test_bug_right_matmul_broken() {
     use nalgebra::DMatrix;
 
-    // Create a 2x2 matrix A = [[2, 0], [0, 3]]
+    // Create a 2 x 2 matrix A = [[2, 0], [0, 3]]
     let a_matrix = DMatrix::from_vec(2, 2, vec![2.0, 0.0, 0.0, 3.0]);
     let a = constant_dmatrix(a_matrix);
 
-    // x is a 1x2 row vector
+    // x is a 1 x 2 row vector
     let x = variable((1, 2));
 
-    // y = x @ A should be [2*x[0], 3*x[1]] (row vector multiplied by matrix)
+    // y = x A should be [2*x[0], 3*x[1]] (row vector multiplied by matrix)
     // minimize sum(y) s.t. x >= 1
-    // With x @ A working: optimal x = [1, 1], y = [2, 3], value = 5
-    // BUG: x @ A returns x unchanged, so y = x, value = 2
+    // With x A working: optimal x = [1, 1], y = [2, 3], value = 5
+    // BUG: x A returns x unchanged, so y = x, value = 2
     let y = matmul(&x, &a);
     let prob = Problem::minimize(sum(&y))
         .subject_to([x.ge(constant(1.0))])
@@ -85,7 +85,7 @@ fn test_bug_right_matmul_broken() {
     let rel_err = (value - expected).abs() / (1.0 + expected.abs());
 
     // This test will FAIL until the bug is fixed
-    // Currently value ≈ 2 because x @ A returns x unchanged
+    // Currently value ~= 2 because x A returns x unchanged
     assert!(
         rel_err < TOL,
         "BUG: Right matmul x @ A didn't multiply! Expected {}, got {} (rel_err={})",
@@ -96,25 +96,25 @@ fn test_bug_right_matmul_broken() {
 }
 
 /// BUG #3: Left matmul with sparse constant matrix doesn't multiply
-/// The canonicalizer at canonicalizer.rs:243 returns b.clone() for sparse A in A @ x
+/// The canonicalizer at canonicalizer.rs:243 returns `b.clone()` for sparse `A` in `A x`
 #[test]
 fn test_bug_left_matmul_sparse_broken() {
     use nalgebra_sparse::{CooMatrix, CscMatrix};
 
-    // Create a 2x2 sparse matrix A = [[2, 0], [0, 3]]
+    // Create a 2 x 2 sparse matrix A = [[2, 0], [0, 3]]
     let mut coo = CooMatrix::new(2, 2);
     coo.push(0, 0, 2.0);
     coo.push(1, 1, 3.0);
     let a_sparse: CscMatrix<f64> = CscMatrix::from(&coo);
     let a = constant_sparse(a_sparse);
 
-    // x is a 2x1 column vector
+    // x is a 2 x 1 column vector
     let x = variable(2);
 
-    // y = A @ x should be [2*x[0], 3*x[1]]
+    // y = A x should be [2*x[0], 3*x[1]]
     // minimize sum(y) s.t. x >= 1
-    // With A @ x working: optimal x = [1, 1], y = [2, 3], value = 5
-    // BUG: A @ x returns x unchanged (for sparse A), so y = x, value = 2
+    // With A x working: optimal x = [1, 1], y = [2, 3], value = 5
+    // BUG: A x returns x unchanged (for sparse A), so y = x, value = 2
     let y = matmul(&a, &x);
     let prob = Problem::minimize(sum(&y))
         .subject_to([x.ge(constant(1.0))])
@@ -130,7 +130,7 @@ fn test_bug_left_matmul_sparse_broken() {
     let rel_err = (value - expected).abs() / (1.0 + expected.abs());
 
     // This test will FAIL until the bug is fixed
-    // Currently value ≈ 2 because sparse A @ x returns x unchanged
+    // Currently value ~= 2 because sparse A x returns x unchanged
     assert!(
         rel_err < TOL,
         "BUG: Left matmul with sparse A @ x didn't multiply! Expected {}, got {} (rel_err={})",
@@ -146,7 +146,7 @@ fn test_hstack() {
     let x = variable(3);
     let y = variable(3);
 
-    // hstack([x, y]) creates a 3x2 matrix
+    // hstack([x, y]) creates a 3 x 2 matrix
     // minimize sum(hstack) s.t. x >= 1, y >= 2
     let h = hstack(vec![x.clone(), y.clone()]);
     let prob = Problem::minimize(sum(&h))
@@ -175,12 +175,12 @@ fn test_weighted_sum() {
     use nalgebra::DMatrix;
 
     let x = variable(3);
-    // c = [1, 2, 3] as a row vector for matmul: c @ x
+    // c = [1, 2, 3] as a row vector for matmul: c x
     let c_mat = DMatrix::from_vec(1, 3, vec![1.0, 2.0, 3.0]);
     let c = constant_dmatrix(c_mat);
 
-    // minimize c @ x s.t. x >= 1
-    // c @ x = 1*x1 + 2*x2 + 3*x3
+    // minimize c x s.t. x >= 1
+    // c x = 1*x_1 + 2*x_2 + 3*x_3
     // optimal: x = [1, 1, 1], value = 6
     let prob = Problem::minimize(matmul(&c, &x))
         .subject_to([x.ge(constant(1.0))])
@@ -205,8 +205,8 @@ fn test_weighted_sum() {
 /// Test transpose in optimization
 #[test]
 fn test_transpose_in_constraint() {
-    let x = variable((2, 3)); // 2x3 matrix
-    let _xt = transpose(&x); // 3x2 matrix
+    let x = variable((2, 3)); // 2 x 3 matrix
+    let _xt = transpose(&x); // 3 x 2 matrix
 
     // minimize sum(x) s.t. x >= 1
     let prob = Problem::minimize(sum(&x))
@@ -293,17 +293,17 @@ fn test_index_single_element() {
 #[test]
 fn test_transpose_in_matmul() {
     // Test that transpose works correctly with matmul
-    // minimize ||A @ x - b||_2 where A is 3x2, x is 2x1, b is 3x1
-    // This is equivalent to minimize ||A @ x - b||_2
-    // Also test: A.T @ A @ x should work
+    // minimize ||A x - b||_2 where A is 3 x 2, x is 2 x 1, b is 3 x 1
+    // This is equivalent to minimize ||A x - b||_2
+    // Also test: A^T A x should work
     let x = VariableBuilder::new(Shape::vector(2)).build();
 
-    // A = [[1, 2], [3, 4], [5, 6]] (3x2 matrix, column-major)
+    // A = [[1, 2], [3, 4], [5, 6]] (3 x 2 matrix, column-major)
     let a = constant_matrix(vec![1.0, 3.0, 5.0, 2.0, 4.0, 6.0], 3, 2);
     // b = [1, 2, 3]
     let b = constant_vec(vec![1.0, 2.0, 3.0]);
 
-    // Least squares: minimize ||Ax - b||_2^2
+    // Least squares: minimize ||A x - b||_2^2
     let residual = &matmul(&a, &x) - &b;
     let obj = sum_squares(&residual);
 
@@ -313,9 +313,9 @@ fn test_transpose_in_matmul() {
     let solution = prob.solve().unwrap();
     assert_eq!(solution.status, SolveStatus::Optimal);
 
-    // Verify A.T @ A @ x gives correct shape
+    // Verify A^T A x gives correct shape
     let at = transpose(&a);
-    let ata = matmul(&at, &a); // Should be 2x2
-    let atax = matmul(&ata, &x); // Should be 2x1
+    let ata = matmul(&at, &a); // Should be 2 x 2
+    let atax = matmul(&ata, &x); // Should be 2 x 1
     assert_eq!(atax.shape(), Shape::vector(2));
 }

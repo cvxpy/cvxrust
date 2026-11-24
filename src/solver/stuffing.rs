@@ -5,7 +5,7 @@ SPDX-License-Identifier: Apache-2.0
 
 //! Matrix stuffing: converts canonicalized expressions to solver format.
 //!
-//! This module builds the matrices (P, q, A, b) and cone specifications
+//! This module builds the matrices `(P, q, A, b)` and cone specifications
 //! required by Clarabel from the canonicalized problem.
 
 use std::collections::HashMap;
@@ -28,7 +28,7 @@ pub struct ConeDims {
     pub soc: Vec<usize>,
     /// Number of exponential cones (each is 3D).
     pub exp: usize,
-    /// Power cone alpha values (each cone is 3D with its own alpha).
+    /// Power cone `alpha` values (each cone is 3D with its own `alpha`).
     pub power: Vec<f64>,
 }
 
@@ -46,7 +46,7 @@ impl ConeDims {
 /// Mapping from variable IDs to column indices in the optimization variable.
 #[derive(Debug, Clone)]
 pub struct VariableMap {
-    /// Map from variable ID to (start_col, size).
+    /// Map from variable ID to `(start_col, size)`.
     pub id_to_col: HashMap<ExprId, (usize, usize)>,
     /// Original variable shapes, used when unpacking solver results.
     pub id_to_shape: HashMap<ExprId, Shape>,
@@ -55,7 +55,7 @@ pub struct VariableMap {
 }
 
 impl VariableMap {
-    /// Create from a list of (variable_id, shape) pairs.
+    /// Create from a list of `(variable_id, shape)` pairs.
     pub fn from_vars(vars: &[(ExprId, Shape)]) -> Self {
         let mut id_to_col = HashMap::new();
         let mut id_to_shape = HashMap::new();
@@ -89,13 +89,13 @@ impl VariableMap {
 /// Stuffed problem ready for Clarabel.
 #[derive(Debug)]
 pub struct StuffedProblem {
-    /// Quadratic cost matrix P (n x n, symmetric).
+    /// Quadratic cost matrix `P` (`n x n`, symmetric).
     pub p: CscMatrix<f64>,
-    /// Linear cost vector q (n).
+    /// Linear cost vector `q` of length `n`.
     pub q: Vec<f64>,
-    /// Constraint matrix A (m x n).
+    /// Constraint matrix `A` (`m x n`).
     pub a: CscMatrix<f64>,
-    /// Constraint vector b (m).
+    /// Constraint vector `b` of length `m`.
     pub b: Vec<f64>,
     /// Cone dimensions.
     pub cone_dims: ConeDims,
@@ -133,7 +133,7 @@ pub fn stuff_problem(
     }
 }
 
-/// Stuff the objective into P and q.
+/// Stuff the objective into `P` and `q`.
 fn stuff_objective(objective: &QuadExpr, var_map: &VariableMap) -> (CscMatrix<f64>, Vec<f64>) {
     let n = var_map.total_vars;
 
@@ -179,14 +179,14 @@ fn stuff_objective(objective: &QuadExpr, var_map: &VariableMap) -> (CscMatrix<f6
 
     let p = csc_from_triplets(n, n, p_rows, p_cols, p_vals);
 
-    // Clarabel uses objective (1/2) x' P x + q' x, so we scale P by 2
-    // to get our intended objective x' P x + q' x
+    // Clarabel uses objective (1/2) x^T P x + q^T x, so we scale P by 2
+    // to get our intended objective x^T P x + q^T x
     let p_scaled = csc_scale(&p, 2.0);
 
     (p_scaled, q)
 }
 
-/// Stuff constraints into A, b, and cone dims.
+/// Stuff constraints into `A`, `b`, and cone dimensions.
 fn stuff_constraints(
     constraints: &[ConeConstraint],
     var_map: &VariableMap,

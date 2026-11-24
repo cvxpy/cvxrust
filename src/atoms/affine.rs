@@ -110,7 +110,7 @@ pub fn matmul(a: &Expr, b: &Expr) -> Expr {
 /// Dot product (inner product) of two vectors.
 pub fn dot(a: &Expr, b: &Expr) -> Expr {
     // dot(a, b) = sum(a * b) for element-wise product
-    // or a'b for vector dot product
+    // or a^T b for vector dot product
     Expr::MatMul(
         Arc::new(Expr::Transpose(Arc::new(a.clone()))),
         Arc::new(b.clone()),
@@ -208,7 +208,7 @@ fn axis_index_drops_axis(selector: AxisIndex) -> bool {
 
 /// Cumulative sum along an axis.
 ///
-/// Returns cumsum([x1, x2, x3]) = [x1, x1+x2, x1+x2+x3]
+/// Returns `cumsum([x_1, x_2, x_3]) = [x_1, x_1 + x_2, x_1 + x_2 + x_3]`.
 pub fn cumsum(expr: &Expr) -> Expr {
     Expr::Cumsum(Arc::new(expr.clone()), None)
 }

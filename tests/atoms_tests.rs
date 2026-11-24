@@ -9,9 +9,7 @@ use cvxrust::prelude::*;
 
 const TOL: f64 = 1e-4;
 
-// ============================================================================
 // Exponential Cone Atoms
-// ============================================================================
 
 #[test]
 fn test_exp_basic() {
@@ -36,7 +34,7 @@ fn test_exp_basic() {
 #[test]
 fn test_exp_with_constraint() {
     // maximize x s.t. exp(x) <= 5
-    // exp(x) <= 5 means x <= log(5) ≈ 1.609
+    // exp(x) <= 5 means x <= log(5) ~= 1.609
     // Solution: x = log(5)
     let x = variable(());
     let solution = Problem::maximize(x.clone())
@@ -58,7 +56,7 @@ fn test_exp_with_constraint() {
 #[test]
 fn test_log_basic() {
     // maximize log(x) s.t. x <= 2
-    // Solution: x = 2, log(2) ≈ 0.693
+    // Solution: x = 2, log(2) ~= 0.693
     let x = variable(());
     let obj = log(&x);
 
@@ -109,17 +107,15 @@ fn test_entropy_basic() {
         .expect("Should solve");
 
     assert_eq!(solution.status, SolveStatus::Optimal);
-    // Maximum entropy in [0.1, 0.5] is at x ≈ 0.368 (1/e)
+    // Maximum entropy in [0.1, 0.5] is at x ~= 0.368 (1/e)
     // But due to simplified implementation, we just check it solves
 }
 
-// ============================================================================
 // Power Cone Atoms
-// ============================================================================
 
 #[test]
 fn test_power_p_half() {
-    // minimize -sqrt(x) = -x^0.5 s.t. x <= 4
+    // minimize -sqrt(x) = -x^(0.5) s.t. x <= 4
     // Solution: x = 4, sqrt(4) = 2
     let x = variable(());
     let obj = -sqrt(&x);
@@ -153,8 +149,8 @@ fn test_power_p_greater_than_1() {
 
 #[test]
 fn test_power_p_less_than_1() {
-    // maximize x^0.3 s.t. x <= 8
-    // Solution: x = 8, 8^0.3 ≈ 1.986
+    // maximize x^(0.3) s.t. x <= 8
+    // Solution: x = 8, 8^(0.3) ~= 1.986
     let x = variable(());
     let obj = power(&x, 0.3);
 
@@ -195,9 +191,7 @@ fn test_sqrt_vector() {
     }
 }
 
-// ============================================================================
 // Affine Atoms
-// ============================================================================
 
 #[test]
 fn test_cumsum_basic() {
@@ -261,9 +255,7 @@ fn test_diag_basic() {
     assert!((val - 6.0).abs() < TOL, "Expected 6.0, got {}", val);
 }
 
-// ============================================================================
 // Dual Values
-// ============================================================================
 
 #[test]
 fn test_dual_values_simple() {
@@ -310,14 +302,12 @@ fn test_dual_values_shadow_price() {
 
     if let Some(duals) = solution.duals() {
         println!("Dual values: {:?}", duals);
-        // First constraint (x+y>=10) should have dual ≈ -1
+        // First constraint (x+y>=10) should have dual ~= -1
         // (negative because of Clarabel's convention)
     }
 }
 
-// ============================================================================
 // DCP Verification Tests
-// ============================================================================
 
 #[test]
 fn test_exp_dcp_rules() {
@@ -379,9 +369,7 @@ fn test_diag_dcp() {
     assert_eq!(d.curvature(), Curvature::Affine);
 }
 
-// ============================================================================
 // Integration Tests
-// ============================================================================
 
 #[test]
 fn test_logistic_regression_setup() {

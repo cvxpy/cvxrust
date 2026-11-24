@@ -7,16 +7,18 @@ SPDX-License-Identifier: Apache-2.0
 //!
 //! This example demonstrates solving a quadratic program:
 //!
-//! minimize    (1/2) x'Px + q'x
-//! subject to  Ax = b, x >= 0
+//! ```text
+//! minimize    (1/2) x^T P x + q^T x
+//! subject to  A x = b, x >= 0
+//! ```
 
 use cvxrust::prelude::*;
 
 fn main() {
     println!("=== Quadratic Programming ===\n");
 
-    // Problem: Find point closest to [3, 2] satisfying x1 + x2 = 4, x >= 0
-    // minimize (x1 - 3)^2 + (x2 - 2)^2
+    // Problem: Find point closest to [3, 2] satisfying x_1 + x_2 = 4, x >= 0
+    // minimize (x_1 - 3)^2 + (x_2 - 2)^2
 
     println!("Problem: Find point closest to [3, 2]");
     println!("Subject to: x1 + x2 = 4, x >= 0\n");

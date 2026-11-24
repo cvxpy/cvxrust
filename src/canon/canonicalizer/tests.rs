@@ -131,8 +131,8 @@ fn test_canonicalize_quad_form_affine_variable_blocks_and_stuffing() {
         panic!("an affine quadratic objective must use the native QP representation");
     };
 
-    // x'Px = 14u₁² + 34u₁u₂ + 26u₂² + 6u₁v + 18u₂v + 6v²
-    //        - 6u₁ - 18u₂ - 12v + 6.
+    // x^T P x = 14 u_1^2 + 34 u_1 u_2 + 26 u_2^2 + 6 u_1 v + 18 u_2 v + 6 v^2
+    //           - 6 u_1 - 18 u_2 - 12 v + 6.
     assert_abs_diff_eq!(
         csc_to_dense(&q.quad_coeffs[&(u_id, u_id)]),
         DMatrix::from_row_slice(2, 2, &[14.0, 17.0, 17.0, 26.0]),
@@ -179,7 +179,7 @@ fn test_canonicalize_quad_form_affine_variable_blocks_and_stuffing() {
         ),
     ] {
         let stuffed = stuff_problem(&q, &[], &variables);
-        // Clarabel uses ½x'Px and stores the upper triangle.
+        // Clarabel uses (1/2) x^T P x and stores the upper triangle.
         assert_abs_diff_eq!(
             csc_to_dense(&stuffed.p),
             DMatrix::from_row_slice(3, 3, &expected_p),

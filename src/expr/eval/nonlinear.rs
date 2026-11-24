@@ -88,7 +88,7 @@ pub(super) fn eval_quad_form(x: Array, p: Array) -> crate::Result<Array> {
             "Shape mismatch in quad_form".into(),
         ));
     }
-    // x' P x
+    // x^T P x
     let result = (xm.transpose() * &pm * &xm)[(0, 0)];
     Ok(Array::Scalar(result))
 }
