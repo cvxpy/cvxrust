@@ -51,44 +51,29 @@ impl CanonContext<'_> {
             };
         }
 
-        // Handle constant expression that evaluates to scalar
-        if a_is_const && !b_is_const {
-            let ca = self.canonicalize_expr(a, false).as_linear().clone();
-            if ca.shape.is_scalar() {
-                let scalar = ca.constant[(0, 0)];
-                let cb = self.canonicalize_expr(b, for_objective);
-                return match cb {
-                    CanonExpr::Linear(l) => CanonExpr::Linear(l.scale(scalar)),
-                    CanonExpr::Quadratic(q) => CanonExpr::Quadratic(q.scale(scalar)),
-                };
+        let (constant, other) = match (a_is_const, b_is_const) {
+            (true, false) => (a, b),
+            (false, true) => (b, a),
+            (true, true) => {
+                let ca = self.canonicalize_expr(a, false).as_linear().clone();
+                let cb = self.canonicalize_expr(b, false).as_linear().clone();
+                let result = ca.constant.component_mul(&cb.constant);
+                return CanonExpr::Linear(LinExpr::constant(result));
             }
-            // Element-wise multiplication with constant vector/matrix
-            let cb = self.canonicalize_expr(b, false).as_linear().clone();
-            return CanonExpr::Linear(self.elementwise_mul_const_lin(&ca.constant, &cb));
-        }
-        if b_is_const && !a_is_const {
-            let cb = self.canonicalize_expr(b, false).as_linear().clone();
-            if cb.shape.is_scalar() {
-                let scalar = cb.constant[(0, 0)];
-                let ca = self.canonicalize_expr(a, for_objective);
-                return match ca {
-                    CanonExpr::Linear(l) => CanonExpr::Linear(l.scale(scalar)),
-                    CanonExpr::Quadratic(q) => CanonExpr::Quadratic(q.scale(scalar)),
-                };
+            (false, false) => {
+                panic!("cannot canonicalize product of two non-constant expressions")
             }
-            // Element-wise multiplication with constant vector/matrix
-            let ca = self.canonicalize_expr(a, false).as_linear().clone();
-            return CanonExpr::Linear(self.elementwise_mul_const_lin(&cb.constant, &ca));
+        };
+        let constant = self.canonicalize_expr(constant, false).as_linear().clone();
+        if constant.shape.is_scalar() {
+            let scalar = constant.constant[(0, 0)];
+            return match self.canonicalize_expr(other, for_objective) {
+                CanonExpr::Linear(l) => CanonExpr::Linear(l.scale(scalar)),
+                CanonExpr::Quadratic(q) => CanonExpr::Quadratic(q.scale(scalar)),
+            };
         }
-        if a_is_const && b_is_const {
-            // Both constant - evaluate and return
-            let ca = self.canonicalize_expr(a, false).as_linear().clone();
-            let cb = self.canonicalize_expr(b, false).as_linear().clone();
-            let result = ca.constant.component_mul(&cb.constant);
-            return CanonExpr::Linear(LinExpr::constant(result));
-        }
-
-        panic!("cannot canonicalize product of two non-constant expressions")
+        let other = self.canonicalize_expr(other, false).as_linear().clone();
+        CanonExpr::Linear(self.elementwise_mul_const_lin(&constant.constant, &other))
     }
 
     fn elementwise_mul_const_lin(&self, c: &DMatrix<f64>, lin: &LinExpr) -> LinExpr {

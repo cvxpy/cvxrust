@@ -11,7 +11,7 @@ use super::{CanonContext, CanonExpr, ConeConstraint};
 use crate::canon::lin_expr::{LinExpr, QuadExpr};
 use crate::expr::semidefinite::{self, Definiteness};
 use crate::expr::{Expr, Shape};
-use crate::sparse::{csc_add, csc_to_dense, dense_to_csc};
+use crate::sparse::{csc_to_dense, dense_to_csc};
 
 impl CanonContext<'_> {
     pub(super) fn canonicalize_quad_form(
@@ -108,10 +108,7 @@ impl CanonContext<'_> {
                 for &var_j in &vars {
                     let aj = csc_to_dense(&x.coeffs[&var_j]);
                     let ai_t_aj = dense_to_csc(&(ai.transpose() * &aj));
-                    quad_coeffs
-                        .entry((var_i, var_j))
-                        .and_modify(|existing| *existing = csc_add(existing, &ai_t_aj))
-                        .or_insert(ai_t_aj);
+                    quad_coeffs.insert((var_i, var_j), ai_t_aj);
                 }
                 let q_col = ai.transpose() * c;
                 let q_row = dense_to_csc(&(q_col * 2.0).transpose());
