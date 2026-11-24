@@ -4,6 +4,7 @@ SPDX-License-Identifier: Apache-2.0
 */
 
 use approx::assert_abs_diff_eq;
+use cvxrust::dcp::PsdStatus;
 use cvxrust::prelude::*;
 use cvxrust::sparse::dense_to_csc;
 use nalgebra::{DMatrix, DVector};
@@ -104,6 +105,55 @@ fn rank_one_objectives_constraints_and_composition() {
                 (Problem::maximize(log(&(q + constant(10.0)))), 6.0_f64.ln())
             };
             solve(problem.constraint(x.ge(1.0)).build(), expected);
+        }
+    }
+}
+
+#[test]
+fn singular_gram_forms_survive_permutations() {
+    let a = DMatrix::from_row_slice(2, 3, &[5.0, 0.0, 9.0, 4.0, 1.0, -10.0]);
+    let matrix = a.transpose() * a;
+    for order in [
+        [0, 1, 2],
+        [0, 2, 1],
+        [1, 0, 2],
+        [1, 2, 0],
+        [2, 0, 1],
+        [2, 1, 0],
+    ] {
+        let permuted = DMatrix::from_fn(3, 3, |i, j| matrix[(order[i], order[j])]);
+        for sign in [1.0, -1.0] {
+            for p in representations(&permuted * sign) {
+                let array = p.constant_value().unwrap();
+                assert_eq!(array.is_psd(), Some(sign > 0.0), "order={order:?}");
+                assert_eq!(
+                    PsdStatus::of_array(array),
+                    if sign > 0.0 {
+                        PsdStatus::Psd
+                    } else {
+                        PsdStatus::Nsd
+                    }
+                );
+                let x = variable(3);
+                let q = quad_form(&x, &p);
+                let native = if sign > 0.0 {
+                    Problem::minimize(q)
+                } else {
+                    Problem::maximize(q)
+                };
+                solve(native.constraint(x.eq(1.0)).build(), sign * 221.0);
+
+                let t = variable(());
+                let z = promote(&t, 3);
+                let q = quad_form(&z, &p);
+                let bound = if sign > 0.0 {
+                    q.le(221.0)
+                } else {
+                    q.ge(-221.0)
+                };
+                let solution = solve(Problem::maximize(t.clone()).constraint(bound).build(), 1.0);
+                assert_abs_diff_eq!(solution.value(&t), 1.0, epsilon = 1e-5);
+            }
         }
     }
 }

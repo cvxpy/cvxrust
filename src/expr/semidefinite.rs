@@ -226,6 +226,29 @@ fn balanced_psd_factor(matrix: &DMatrix<f64>, sign: f64) -> Option<DMatrix<f64>>
     factor_matches(matrix, sign, &factor).then_some(factor)
 }
 
+// Recover a factor after classification and projection at the original scale.
+fn balanced_eigen_factor(matrix: &DMatrix<f64>, sign: f64) -> Option<DMatrix<f64>> {
+    let n = matrix.nrows();
+    let scales = diagonal_scales(matrix, sign)?;
+    let balanced = equilibrate(matrix, sign, &scales);
+    if !balanced.iter().all(|value| value.is_finite()) {
+        return None;
+    }
+    let eigen = balanced.try_symmetric_eigen(f64::EPSILON, n.saturating_mul(100))?;
+    if !eigen
+        .eigenvalues
+        .iter()
+        .chain(eigen.eigenvectors.iter())
+        .all(|value| value.is_finite())
+    {
+        return None;
+    }
+    let factor = DMatrix::from_fn(n, n, |i, j| {
+        scales[j] * eigen.eigenvalues[i].max(0.0).sqrt() * eigen.eigenvectors[(j, i)]
+    });
+    factor_matches(matrix, sign, &factor).then_some(factor)
+}
+
 struct SpectralBlock {
     indices: Vec<usize>,
     scale: f64,
@@ -392,6 +415,7 @@ fn project_block(
     let effective = DMatrix::from_fn(size, size, |i, j| matrix[(indices[i], indices[j])]);
     balanced_psd_factor(&effective, sign)
         .or_else(|| factor_matches(&effective, sign, &factor).then_some(factor))
+        .or_else(|| balanced_eigen_factor(&effective, sign))
 }
 
 #[cfg(test)]
@@ -614,6 +638,19 @@ mod tests {
             assert!(factor_matches(&signed, sign, &valid));
             assert!(!factor_matches(&signed, sign, &missing));
             assert!(!factor_matches(&signed, sign, &nonzero_null));
+        }
+    }
+
+    #[test]
+    fn balanced_eigen_factor_rejects_inaccurate_candidates() {
+        for matrix in [
+            DMatrix::from_row_slice(2, 2, &[1.0, 2.0, 2.0, 1.0]),
+            DMatrix::from_row_slice(2, 2, &[0.0, 1.0, 1.0, 1.0]),
+            DMatrix::from_row_slice(2, 2, &[1.0, f64::INFINITY, f64::INFINITY, 1.0]),
+        ] {
+            for sign in [1.0, -1.0] {
+                assert!(balanced_eigen_factor(&(&matrix * sign), sign).is_none());
+            }
         }
     }
 
