@@ -9,7 +9,7 @@ use nalgebra::DMatrix;
 
 use super::{CanonContext, CanonExpr, ConeConstraint};
 use crate::canon::lin_expr::{LinExpr, QuadExpr};
-use crate::expr::{Array, Expr, Shape};
+use crate::expr::{Array, Expr, Shape, symmetric_part};
 use crate::sparse::{csc_add, csc_to_dense, dense_to_csc};
 
 impl CanonContext<'_> {
@@ -38,7 +38,7 @@ impl CanonContext<'_> {
         }
 
         // x' P x = x' ((P + P') / 2) x.
-        let p_mat = &p_mat * 0.5 + p_mat.transpose() * 0.5;
+        let p_mat = symmetric_part(&p_mat);
 
         if for_objective {
             // x = sum_i A_i v_i + b gives Q_ij = A_i' P A_j,

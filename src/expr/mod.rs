@@ -22,6 +22,7 @@ mod traversal;
 pub mod variable;
 
 // Re-export main types
+pub(crate) use array::symmetric_part;
 pub use constant::{
     IntoConstant, constant, constant_dmatrix, constant_matrix, constant_sparse, constant_vec, eye,
     ones, zeros,
