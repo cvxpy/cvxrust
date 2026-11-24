@@ -4,6 +4,7 @@ SPDX-License-Identifier: Apache-2.0
 */
 
 use approx::assert_abs_diff_eq;
+use cvxrust::canon::{VariableDomains, canonicalize};
 use cvxrust::dcp::PsdStatus;
 use cvxrust::prelude::*;
 use cvxrust::sparse::dense_to_csc;
@@ -252,6 +253,71 @@ fn zero_forms_in_products_preserve_variable_domains() {
             .build();
         assert!(infeasible.is_dcp());
         assert!(matches!(infeasible.solve(), Err(CvxError::SolverError(_))));
+    }
+}
+
+#[test]
+fn constant_products_preserve_shapes_and_domains() {
+    let x = variable(());
+    let nonnegative = x.clone().nonneg();
+    for zero in [0.0 * &nonnegative, quad_form(&nonnegative, &constant(0.0))] {
+        for (left_shape, right_shape, expected) in [
+            (Shape::vector(2), Shape::matrix(2, 1), 5.0),
+            (Shape::matrix(2, 1), Shape::vector(2), 5.0),
+            (Shape::vector(2), Shape::vector(2), 5.0),
+            (Shape::matrix(2, 1), Shape::matrix(2, 1), 5.0),
+            (Shape::matrix(1, 2), Shape::matrix(1, 2), 5.0),
+            (Shape::scalar(), Shape::scalar(), 2.0),
+        ] {
+            let a = promote(&zero, left_shape) + constant(1.0);
+            let b = if right_shape.is_scalar() {
+                &zero + constant(2.0)
+            } else {
+                reshape(&constant_vec(vec![2.0, 3.0]), right_shape)
+            };
+            for product in [&a * &b, &b * &a] {
+                let objective = if product.shape().is_vector() {
+                    sum(&diag(&product))
+                } else {
+                    sum(&product)
+                };
+                solve(
+                    Problem::minimize(objective.clone())
+                        .constraint(x.eq(1.0))
+                        .build(),
+                    expected,
+                );
+                let canonical = canonicalize(&product, false, &mut VariableDomains::default());
+                assert_eq!(canonical.expr.as_linear().shape, product.shape());
+                let infeasible = Problem::minimize(objective).constraint(x.le(-1.0)).build();
+                assert!(infeasible.is_dcp());
+                assert!(matches!(infeasible.solve(), Err(CvxError::SolverError(_))));
+            }
+        }
+    }
+}
+
+#[test]
+fn linear_products_preserve_vector_shape() {
+    let x = variable((2, 1));
+    let coefficients = reshape(&constant_vec(vec![2.0, 3.0]), 2);
+    let scalar = promote(&constant(2.0), 2);
+    let column = constant_vec(vec![2.0, 3.0]);
+    for (product, expected) in [
+        (&scalar * &column, 10.0),
+        (&column * &scalar, 10.0),
+        (&coefficients * &x, 5.0),
+        (&x * &coefficients, 5.0),
+    ] {
+        assert_eq!(product.shape(), Shape::vector(2));
+        solve(
+            Problem::minimize(sum(&diag(&product)))
+                .constraint(x.eq(1.0))
+                .build(),
+            expected,
+        );
+        let canonical = canonicalize(&product, false, &mut VariableDomains::default());
+        assert_eq!(canonical.expr.as_linear().shape, product.shape());
     }
 }
 
