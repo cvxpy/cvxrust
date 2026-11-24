@@ -125,8 +125,7 @@ impl PsdStatus {
                     }
                     Array::Dense(m) => {
                         // Check if -M is PSD
-                        let neg = -m.clone();
-                        if neg.cholesky().is_some() {
+                        if Array::Dense(-m).is_psd() == Some(true) {
                             PsdStatus::Nsd
                         } else {
                             PsdStatus::Neither

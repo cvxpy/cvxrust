@@ -19,7 +19,7 @@ SPDX-License-Identifier: Apache-2.0
 use std::sync::Arc;
 
 use crate::canon::constraints::canonicalize_constraint;
-use crate::canon::{ConeConstraint, VariableDomains, canonicalize};
+use crate::canon::{ConeConstraint, LinExpr, VariableDomains, canonicalize};
 use crate::constraints::Constraint;
 use crate::error::{CvxError, Result};
 use crate::expr::{Expr, ExprId, Shape};
@@ -178,11 +178,28 @@ impl Problem {
             all_vars.extend(canon_result.aux_vars);
         }
 
+        // Clarabel requires at least one variable. A fixed auxiliary scalar keeps
+        // constant objectives and cone feasibility checks in the same solve path.
+        let fixed_var = if all_vars.iter().all(|(_, shape)| shape.size() == 0) {
+            let id = ExprId::new();
+            let shape = Shape::scalar();
+            all_vars.push((id, shape.clone()));
+            all_cone_constraints.push(ConeConstraint::Zero {
+                a: LinExpr::variable(id, shape),
+            });
+            Some(id)
+        } else {
+            None
+        };
+
         // Stuff the problem
         let stuffed = stuff_problem(&obj_quad, &all_cone_constraints, &all_vars);
 
         // Solve
         let mut solution = solve(&stuffed, &settings);
+        if let (Some(id), Some(primal)) = (fixed_var, solution.primal.as_mut()) {
+            primal.remove(&id);
+        }
         solution.constraint_rows = Some(
             constraint_indices
                 .into_iter()

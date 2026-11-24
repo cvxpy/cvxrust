@@ -10,6 +10,20 @@ use nalgebra_sparse::CscMatrix;
 
 use super::shape::Shape;
 
+/// Form (P + P') / 2 with stable averaging.
+pub(crate) fn symmetric_part(matrix: &DMatrix<f64>) -> DMatrix<f64> {
+    debug_assert!(matrix.is_square());
+    let mut symmetric = matrix.clone();
+    for i in 0..matrix.nrows() {
+        for j in (i + 1)..matrix.ncols() {
+            let value = matrix[(i, j)].midpoint(matrix[(j, i)]);
+            symmetric[(i, j)] = value;
+            symmetric[(j, i)] = value;
+        }
+    }
+    symmetric
+}
+
 /// Efficient array storage (dense or sparse).
 #[derive(Debug, Clone)]
 pub enum Array {
@@ -87,8 +101,8 @@ impl Array {
                         }
                     }
                 }
-                // Check eigenvalues (simple approach using Cholesky)
-                Some(m.clone().cholesky().is_some())
+                // Use the same symmetric part as quadratic canonicalization.
+                Some(symmetric_part(m).cholesky().is_some())
             }
             Array::Sparse(_) => {
                 // For sparse, would need to convert to dense or use specialized method

@@ -208,8 +208,8 @@ impl<'a> CanonContext<'a> {
 
             // Affine operations
             Expr::Add(a, b) => {
-                let ca = self.canonicalize_expr(a, false);
-                let cb = self.canonicalize_expr(b, false);
+                let ca = self.canonicalize_expr(a, for_objective);
+                let cb = self.canonicalize_expr(b, for_objective);
                 match (ca, cb) {
                     (CanonExpr::Linear(la), CanonExpr::Linear(lb)) => {
                         CanonExpr::Linear(la.add(&lb))
@@ -228,7 +228,7 @@ impl<'a> CanonContext<'a> {
                 }
             }
             Expr::Neg(a) => {
-                let ca = self.canonicalize_expr(a, false);
+                let ca = self.canonicalize_expr(a, for_objective);
                 match ca {
                     CanonExpr::Linear(l) => CanonExpr::Linear(l.neg()),
                     CanonExpr::Quadratic(q) => CanonExpr::Quadratic(q.scale(-1.0)),

@@ -9,7 +9,7 @@ use nalgebra::DMatrix;
 
 use super::{CanonContext, CanonExpr, ConeConstraint};
 use crate::canon::lin_expr::{LinExpr, QuadExpr};
-use crate::expr::{Array, Expr, Shape};
+use crate::expr::{Array, Expr, Shape, symmetric_part};
 use crate::sparse::{csc_add, csc_to_dense, dense_to_csc};
 
 impl CanonContext<'_> {
@@ -19,32 +19,91 @@ impl CanonContext<'_> {
         p: &Expr,
         for_objective: bool,
     ) -> CanonExpr {
-        // x' P x: If for_objective and P is constant PSD, use native QP
+        // Retain x's bounds when P = 0.
         let cx = self.canonicalize_expr(x, false).as_linear().clone();
-
-        if for_objective {
-            if let Some(Array::Dense(p_mat)) = p.constant_value() {
-                // Build quadratic form for native QP
-                // x' P x where x = sum_i A_i v_i + b
-                // For now, simplified: assume x is a single variable
-                let vars = cx.variables();
-                if vars.len() == 1 && cx.constant.iter().all(|&v| v == 0.0) {
-                    let var_id = vars[0];
-                    let p_csc = dense_to_csc(p_mat);
-                    return CanonExpr::Quadratic(QuadExpr::quadratic(var_id, p_csc));
-                }
-            }
+        let p_value = p
+            .constant_value()
+            .expect("quad_form requires a constant matrix");
+        let p_mat = match p_value {
+            Array::Scalar(value) => DMatrix::from_element(1, 1, *value),
+            Array::Dense(matrix) => matrix.clone(),
+            Array::Sparse(_) => panic!("quad_form with sparse P is not supported"),
+        };
+        assert!(
+            cx.shape.cols() == 1 && p_mat.nrows() == cx.size() && p_mat.ncols() == cx.size(),
+            "quad_form requires a vector x and a matching square matrix P"
+        );
+        if matches!(p_value, Array::Scalar(value) if *value == 0.0) {
+            return CanonExpr::Linear(LinExpr::scalar(0.0));
         }
 
-        // Fall back to SOC reformulation
-        // x' P x where P = L L' (Cholesky)
-        // = ||L' x||_2^2
-        // Introduce t, SOC constraint
-        self.canonicalize_sum_squares_lin(&cx, for_objective)
+        // x' P x = x' ((P + P') / 2) x.
+        let p_mat = symmetric_part(&p_mat);
+
+        if for_objective {
+            // x = sum_i A_i v_i + b gives Q_ij = A_i' P A_j,
+            // q_i = 2 A_i' P b, and r = b' P b.
+            let coeffs: Vec<_> = cx
+                .coeffs
+                .iter()
+                .map(|(&id, coeff)| (id, csc_to_dense(coeff)))
+                .collect();
+            let pb = &p_mat * &cx.constant;
+            let mut quad_coeffs = std::collections::HashMap::new();
+            let mut linear_coeffs = std::collections::HashMap::new();
+            for (var_i, ai) in &coeffs {
+                let ai_t_p = ai.transpose() * &p_mat;
+                for (var_j, aj) in &coeffs {
+                    quad_coeffs.insert((*var_i, *var_j), dense_to_csc(&(&ai_t_p * aj)));
+                }
+                linear_coeffs.insert(
+                    *var_i,
+                    dense_to_csc(&(ai.transpose() * &pb * 2.0).transpose()),
+                );
+            }
+            return CanonExpr::Quadratic(QuadExpr {
+                quad_coeffs,
+                linear: LinExpr {
+                    coeffs: linear_coeffs,
+                    constant: DMatrix::zeros(1, 1),
+                    shape: Shape::scalar(),
+                },
+                constant: cx.constant.dot(&pb),
+            });
+        }
+
+        // P = sign * R' R: use t >= ||R x||² and return sign * t.
+        let (sign, factor) = match p_value {
+            Array::Scalar(value) => (
+                value.signum(),
+                DMatrix::from_element(1, 1, value.abs().sqrt()),
+            ),
+            _ => match p_mat.clone().cholesky() {
+                Some(cholesky) => (1.0, cholesky.l().transpose()),
+                None => (
+                    -1.0,
+                    (-p_mat)
+                        .cholesky()
+                        .expect("quad_form requires a supported PSD or NSD matrix")
+                        .l()
+                        .transpose(),
+                ),
+            },
+        };
+        let weighted_x = LinExpr {
+            coeffs: cx
+                .coeffs
+                .iter()
+                .map(|(&id, coeff)| (id, dense_to_csc(&(&factor * csc_to_dense(coeff)))))
+                .collect(),
+            constant: &factor * &cx.constant,
+            shape: Shape::vector(cx.size()),
+        };
+        let epigraph = self.canonicalize_sum_squares_lin(&weighted_x, false);
+        CanonExpr::Linear(epigraph.as_linear().scale(sign))
     }
 
     pub(super) fn canonicalize_sum_squares(&mut self, x: &Expr, for_objective: bool) -> CanonExpr {
-        // ||x||_2^2 = x' x
         let cx = self.canonicalize_expr(x, false).as_linear().clone();
         let cx = self.flatten_lin(&cx);
         self.canonicalize_sum_squares_lin(&cx, for_objective)
@@ -52,32 +111,28 @@ impl CanonContext<'_> {
 
     fn canonicalize_sum_squares_lin(&mut self, x: &LinExpr, for_objective: bool) -> CanonExpr {
         if for_objective {
-            // For objective, use native QP: ||Ax + c||^2 = x'(A'A)x + 2c'Ax + ||c||^2
-            // stuffing.rs doubles P to account for Clarabel's (1/2)x'Px convention.
+            // ||Ax + c||² = x' A' A x + 2c' A x + ||c||².
             let vars = x.variables();
-            let c = &x.constant; // dense (m, 1) constant
+            let c = &x.constant;
 
             let mut quad_coeffs = std::collections::HashMap::new();
             let mut linear_coeffs = std::collections::HashMap::new();
 
             for &var_i in &vars {
-                let ai = csc_to_dense(&x.coeffs[&var_i]); // (m, ni)
+                let ai = csc_to_dense(&x.coeffs[&var_i]);
                 for &var_j in &vars {
-                    let aj = csc_to_dense(&x.coeffs[&var_j]); // (m, nj)
-                    // A_i' * A_j: (ni, m) * (m, nj) = (ni, nj)
+                    let aj = csc_to_dense(&x.coeffs[&var_j]);
                     let ai_t_aj = dense_to_csc(&(ai.transpose() * &aj));
                     quad_coeffs
                         .entry((var_i, var_j))
                         .and_modify(|existing| *existing = csc_add(existing, &ai_t_aj))
                         .or_insert(ai_t_aj);
                 }
-                // Linear term: 2 * c' * A_i  →  (1, ni) row coefficient
-                let q_col = ai.transpose() * c; // (ni, 1)
-                let q_row = dense_to_csc(&(q_col * 2.0).transpose()); // (1, ni)
+                let q_col = ai.transpose() * c;
+                let q_row = dense_to_csc(&(q_col * 2.0).transpose());
                 linear_coeffs.insert(var_i, q_row);
             }
 
-            // Constant: ||c||^2
             let constant: f64 = c.iter().map(|v| v * v).sum();
 
             return CanonExpr::Quadratic(QuadExpr {
