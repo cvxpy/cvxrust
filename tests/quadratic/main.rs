@@ -6,3 +6,4 @@ SPDX-License-Identifier: Apache-2.0
 mod definiteness;
 mod quad_form;
 mod scaling;
+mod semidefinite;
