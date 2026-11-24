@@ -11,6 +11,7 @@ SPDX-License-Identifier: Apache-2.0
 use std::sync::Arc;
 
 use crate::expr::Expr;
+use crate::expr::semidefinite::{self, Definiteness};
 
 /// Sign of an expression.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -162,15 +163,15 @@ impl Expr {
             }
             Expr::QuadForm(_, p) => {
                 // x^T P x is nonneg if P is PSD, nonpos if P is NSD
-                if let Some(p_val) = p.constant_value() {
-                    use super::curvature::PsdStatus;
-                    match PsdStatus::of_array(p_val) {
-                        PsdStatus::Psd => Sign::Nonnegative,
-                        PsdStatus::Nsd => Sign::Nonpositive,
-                        PsdStatus::Neither => Sign::Unknown,
-                    }
-                } else {
-                    Sign::Unknown
+                match p
+                    .constant_value()
+                    .and_then(semidefinite::analyze)
+                    .map(|a| a.kind)
+                {
+                    Some(Definiteness::Zero) => Sign::Zero,
+                    Some(Definiteness::Psd) => Sign::Nonnegative,
+                    Some(Definiteness::Nsd) => Sign::Nonpositive,
+                    _ => Sign::Unknown,
                 }
             }
             Expr::SumSquares(_) => Sign::Nonnegative,

@@ -180,7 +180,13 @@ pub fn min2(a: &Expr, b: &Expr) -> Expr {
 /// matching constant symmetric matrix; scalar `P` denotes a `1 x 1` matrix.
 /// Convex and nonnegative for PSD `P`; concave and nonpositive for NSD `P`.
 ///
-/// DCP checking supports scalar constants and definite dense matrices.
+/// Scalar, dense, and sparse matrices are supported, including singular matrices.
+/// Sparse matrices are converted to dense.
+///
+/// Eigenvalue signs allow roundoff `tau = 16 * n * f64::EPSILON * rho`, where
+/// `rho` is the largest absolute eigenvalue. Accepted wrong-sign eigenvalues are
+/// set to zero for solving; evaluation uses the original `P`. This correction
+/// changes values by at most `tau * ||x||_2^2`, apart from floating-point error.
 pub fn quad_form(x: &Expr, p: &Expr) -> Expr {
     Expr::QuadForm(Arc::new(x.clone()), Arc::new(p.clone()))
 }
