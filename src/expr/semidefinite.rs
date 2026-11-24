@@ -70,22 +70,16 @@ pub(crate) fn analyze(array: &Array) -> Option<Analysis> {
         return Some(analyze_diagonal(matrix, scale));
     }
     for (kind, sign) in [(Definiteness::Psd, 1.0), (Definiteness::Nsd, -1.0)] {
-        if let Some(factor) = balanced_psd_factor(&matrix, sign) {
+        let factor = balanced_psd_factor(&matrix, sign).or_else(|| {
+            let factor = (&matrix * sign).cholesky()?.l().transpose();
+            factor_matches(&matrix, sign, &factor).then_some(factor)
+        });
+        if let Some(factor) = factor {
             return Some(Analysis {
                 kind,
                 matrix,
                 factor: Some(factor),
             });
-        }
-        if let Some(cholesky) = (&matrix * sign).cholesky() {
-            let factor = cholesky.l().transpose();
-            if factor_matches(&matrix, sign, &factor) {
-                return Some(Analysis {
-                    kind,
-                    matrix,
-                    factor: Some(factor),
-                });
-            }
         }
     }
     analyze_eigen(matrix, scale, n.saturating_mul(100))
@@ -149,6 +143,7 @@ fn equilibrate(matrix: &DMatrix<f64>, sign: f64, scales: &DVector<f64>) -> DMatr
     })
 }
 
+// Diagonal scaling makes reconstruction checks sensitive to small directions.
 fn factor_matches(matrix: &DMatrix<f64>, sign: f64, factor: &DMatrix<f64>) -> bool {
     let Some(scales) = diagonal_scales(matrix, sign) else {
         return false;
@@ -327,58 +322,10 @@ fn analyze_eigen(mut matrix: DMatrix<f64>, scale: f64, max_iterations: usize) ->
     let sign = if kind == Definiteness::Psd { 1.0 } else { -1.0 };
     let mut factor = DMatrix::zeros(n, n);
     for block in blocks {
-        let indices = &block.indices;
-        let size = indices.len();
-        if size == 1 {
-            let i = indices[0];
-            if sign * matrix[(i, i)] < 0.0 {
-                matrix[(i, i)] = 0.0;
-            }
-            factor[(i, i)] = matrix[(i, i)].abs().sqrt();
-            continue;
-        }
-        if block.values.iter().all(|value| sign * value <= 0.0) {
-            for &i in indices {
-                for &j in indices {
-                    matrix[(i, j)] = 0.0;
-                }
-            }
-            continue;
-        }
-        let root_scale = block.scale.sqrt();
-        let mut block_factor = DMatrix::zeros(size, size);
-        for k in 0..size {
-            let value = block.values[k];
-            if sign * value < 0.0 {
-                // Correct only clipped eigenpairs, retaining all other coefficients.
-                for i in 0..size {
-                    for j in i..size {
-                        let correction =
-                            value * block.vectors[(i, k)] * block.vectors[(j, k)] * block.scale;
-                        let corrected = matrix[(indices[i], indices[j])] - correction;
-                        matrix[(indices[i], indices[j])] = corrected;
-                        matrix[(indices[j], indices[i])] = corrected;
-                    }
-                }
-            } else {
-                let root = root_scale * value.abs().sqrt();
-                for j in 0..size {
-                    block_factor[(k, j)] = root * block.vectors[(j, k)];
-                }
-            }
-        }
-        let effective = DMatrix::from_fn(size, size, |i, j| matrix[(indices[i], indices[j])]);
-        if let Some(balanced_factor) = balanced_psd_factor(&effective, sign) {
-            block_factor = balanced_factor;
-        }
-        // Check in diagonal-scaled coordinates so small connected directions
-        // receive the same relative accuracy as large ones.
-        if !factor_matches(&effective, sign, &block_factor) {
-            return None;
-        }
-        for i in 0..size {
-            for j in 0..size {
-                factor[(indices[i], indices[j])] = block_factor[(i, j)];
+        let block_factor = project_block(&mut matrix, &block, sign)?;
+        for (i, &row) in block.indices.iter().enumerate() {
+            for (j, &col) in block.indices.iter().enumerate() {
+                factor[(row, col)] = block_factor[(i, j)];
             }
         }
     }
@@ -394,6 +341,57 @@ fn analyze_eigen(mut matrix: DMatrix<f64>, scale: f64, max_iterations: usize) ->
         matrix,
         factor: Some(factor),
     })
+}
+
+// Clip a spectral block in place and return its factor.
+fn project_block(
+    matrix: &mut DMatrix<f64>,
+    block: &SpectralBlock,
+    sign: f64,
+) -> Option<DMatrix<f64>> {
+    let indices = &block.indices;
+    let size = indices.len();
+    let mut factor = DMatrix::zeros(size, size);
+    if size == 1 {
+        let i = indices[0];
+        if sign * matrix[(i, i)] < 0.0 {
+            matrix[(i, i)] = 0.0;
+        }
+        factor[(0, 0)] = matrix[(i, i)].abs().sqrt();
+        return Some(factor);
+    }
+    if block.values.iter().all(|value| sign * value <= 0.0) {
+        for &i in indices {
+            for &j in indices {
+                matrix[(i, j)] = 0.0;
+            }
+        }
+        return Some(factor);
+    }
+    let root_scale = block.scale.sqrt();
+    for k in 0..size {
+        let value = block.values[k];
+        if sign * value < 0.0 {
+            // Correct only clipped eigenpairs, retaining all other coefficients.
+            for i in 0..size {
+                for j in i..size {
+                    let correction =
+                        value * block.vectors[(i, k)] * block.vectors[(j, k)] * block.scale;
+                    let corrected = matrix[(indices[i], indices[j])] - correction;
+                    matrix[(indices[i], indices[j])] = corrected;
+                    matrix[(indices[j], indices[i])] = corrected;
+                }
+            }
+        } else {
+            let root = root_scale * value.abs().sqrt();
+            for j in 0..size {
+                factor[(k, j)] = root * block.vectors[(j, k)];
+            }
+        }
+    }
+    let effective = DMatrix::from_fn(size, size, |i, j| matrix[(indices[i], indices[j])]);
+    balanced_psd_factor(&effective, sign)
+        .or_else(|| factor_matches(&effective, sign, &factor).then_some(factor))
 }
 
 #[cfg(test)]
