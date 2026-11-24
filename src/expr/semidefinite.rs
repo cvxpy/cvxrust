@@ -220,6 +220,14 @@ fn analyze_eigen(mut matrix: DMatrix<f64>, scale: f64, max_iterations: usize) ->
             factor[(i, i)] = matrix[(i, i)].abs().sqrt();
             continue;
         }
+        if block.values.iter().all(|value| sign * value <= 0.0) {
+            for &i in indices {
+                for &j in indices {
+                    matrix[(i, j)] = 0.0;
+                }
+            }
+            continue;
+        }
         let root_scale = block.scale.sqrt();
         let mut block_factor = DMatrix::zeros(size, size);
         for k in 0..size {

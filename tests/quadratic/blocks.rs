@@ -166,7 +166,9 @@ fn entirely_wrong_sign_blocks_can_be_global_roundoff() {
             &[-2.0 * small, -small, -small, -2.0 * small],
         ));
         for p in representations(matrix * sign) {
-            assert_mapped_quadratic(&p, &small_block_map(small), &DMatrix::zeros(2, 2), sign);
+            for map in [small_block_map(small), small_block_map(1e-32)] {
+                assert_mapped_quadratic(&p, &map, &DMatrix::zeros(2, 2), sign);
+            }
         }
         let matrix =
             DMatrix::from_row_slice(3, 3, &[1.0, 1.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, -small]);
