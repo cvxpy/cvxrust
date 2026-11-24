@@ -401,14 +401,39 @@ impl CanonContext<'_> {
         })
     }
 
-    pub(super) fn canonicalize_cumsum(&mut self, x: &Expr, _axis: Option<usize>) -> CanonExpr {
+    pub(super) fn canonicalize_cumsum(&mut self, x: &Expr, axis: Option<usize>) -> CanonExpr {
         // Cumulative sum using auxiliary variables and constraints
         // cumsum([x_1, x_2, x_3]) = [y_1, y_2, y_3] where:
         //   y_1 = x_1
         //   y_2 = y_1 + x_2  =>  y_2 - y_1 = x_2
         //   y_3 = y_2 + x_3  =>  y_3 - y_2 = x_3
 
-        let cx = self.canonicalize_expr(x, false).as_linear().clone();
+        let mut cx = self.canonicalize_expr(x, false).as_linear().clone();
+        if cx
+            .coeffs
+            .values()
+            .all(|coefficient| coefficient.values().iter().all(|&value| value == 0.0))
+        {
+            match axis.unwrap_or(0) {
+                0 => {
+                    for j in 0..cx.constant.ncols() {
+                        for i in 1..cx.constant.nrows() {
+                            cx.constant[(i, j)] += cx.constant[(i - 1, j)];
+                        }
+                    }
+                }
+                1 => {
+                    for j in 1..cx.constant.ncols() {
+                        for i in 0..cx.constant.nrows() {
+                            cx.constant[(i, j)] += cx.constant[(i, j - 1)];
+                        }
+                    }
+                }
+                _ => panic!("cumsum axis must be 0 or 1"),
+            }
+            cx.coeffs.clear();
+            return CanonExpr::Linear(cx);
+        }
         let n = cx.size();
 
         // Create auxiliary variables for the cumsum result

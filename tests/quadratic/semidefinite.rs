@@ -206,6 +206,41 @@ fn zero_forms_in_products_preserve_variable_domains() {
 }
 
 #[test]
+fn cumulative_constant_multipliers_preserve_values_and_domains() {
+    let x = variable(());
+    let zero = quad_form(&x.clone().nonneg(), &constant(0.0));
+    let y = variable(2);
+    let matrix = variable((2, 2));
+    let coefficients = cumsum(&(&zero + constant_vec(vec![1.0, 2.0])));
+    let matrix_constant = &zero + constant_matrix(vec![1.0, 2.0, 3.0, 4.0], 2, 2);
+    let row_sums = cumsum(&matrix_constant);
+    let column_sums = Expr::Cumsum(std::sync::Arc::new(matrix_constant), Some(1));
+    for (objective, expected) in [
+        (cumsum(&(&zero + constant(2.0))) * &x, 6.0),
+        (sum(&(&coefficients * &y)), 4.0),
+        (sum(&(&y * &coefficients)), 4.0),
+        (matmul(&transpose(&coefficients), &y), 4.0),
+        (matmul(&transpose(&y), &coefficients), 4.0),
+        (sum(&(cumsum(&coefficients) * &y)), 5.0),
+        (sum(&(&row_sums * &matrix)), 14.0),
+        (sum(&matmul(&row_sums, &y)), 14.0),
+        (sum(&(&column_sums * &matrix)), 13.0),
+    ] {
+        solve(
+            Problem::minimize(objective.clone())
+                .subject_to([x.eq(3.0), y.eq(1.0), matrix.eq(1.0)])
+                .build(),
+            expected,
+        );
+        let infeasible = Problem::minimize(objective)
+            .subject_to([x.le(-1.0), y.eq(1.0), matrix.eq(1.0)])
+            .build();
+        assert!(infeasible.is_dcp());
+        assert!(matches!(infeasible.solve(), Err(CvxError::SolverError(_))));
+    }
+}
+
+#[test]
 fn singular_constant_arguments() {
     for sign in [1.0, -1.0] {
         for p in representations(DMatrix::from_element(2, 2, sign)) {
