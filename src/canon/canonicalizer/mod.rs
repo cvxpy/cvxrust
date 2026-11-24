@@ -240,13 +240,7 @@ impl<'a> CanonContext<'a> {
                     CanonExpr::Quadratic(q) => CanonExpr::Quadratic(q.scale(-1.0)),
                 }
             }
-            Expr::Mul(a, b) => {
-                let mut result = self.canonicalize_mul(a, b, for_objective);
-                if let CanonExpr::Linear(lin) = &mut result {
-                    lin.shape = expr.shape();
-                }
-                result
-            }
+            Expr::Mul(a, b) => self.canonicalize_mul(a, b, for_objective),
             Expr::Promote(a, shape) => self.canonicalize_promote(a, shape),
             Expr::MatMul(a, b) => self.canonicalize_matmul(a, b),
             Expr::Sum(a, axis) => self.canonicalize_sum(a, *axis),

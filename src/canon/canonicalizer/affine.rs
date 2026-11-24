@@ -34,19 +34,21 @@ impl CanonContext<'_> {
         // Zero terms can be constant while still referencing variables with bounds.
         let a_is_const = a.variables().is_empty() || a.curvature().is_constant();
         let b_is_const = b.variables().is_empty() || b.curvature().is_constant();
+        let result_shape = a
+            .shape()
+            .broadcast(&b.shape())
+            .unwrap_or_else(|| panic!("cannot broadcast shapes {} and {}", a.shape(), b.shape()));
 
         // Handle scalar multiplication first (most common case)
-        if let Some(scalar) = scalar_constant_value(a) {
-            let cb = self.canonicalize_expr(b, for_objective);
-            return match cb {
-                CanonExpr::Linear(l) => CanonExpr::Linear(l.scale(scalar)),
-                CanonExpr::Quadratic(q) => CanonExpr::Quadratic(q.scale(scalar)),
-            };
-        }
-        if let Some(scalar) = scalar_constant_value(b) {
-            let ca = self.canonicalize_expr(a, for_objective);
-            return match ca {
-                CanonExpr::Linear(l) => CanonExpr::Linear(l.scale(scalar)),
+        let scalar_operand = scalar_constant_value(a)
+            .map(|scalar| (scalar, b))
+            .or_else(|| scalar_constant_value(b).map(|scalar| (scalar, a)));
+        if let Some((scalar, other)) = scalar_operand {
+            return match self.canonicalize_expr(other, for_objective) {
+                CanonExpr::Linear(l) => CanonExpr::Linear(LinExpr {
+                    shape: result_shape,
+                    ..l.scale(scalar)
+                }),
                 CanonExpr::Quadratic(q) => CanonExpr::Quadratic(q.scale(scalar)),
             };
         }
@@ -58,7 +60,11 @@ impl CanonContext<'_> {
                 let ca = self.canonicalize_expr(a, false).as_linear().clone();
                 let cb = self.canonicalize_expr(b, false).as_linear().clone();
                 let result = ca.constant.component_mul(&cb.constant);
-                return CanonExpr::Linear(LinExpr::constant(result));
+                return CanonExpr::Linear(LinExpr {
+                    coeffs: std::collections::HashMap::new(),
+                    constant: result,
+                    shape: result_shape,
+                });
             }
             (false, false) => {
                 panic!("cannot canonicalize product of two non-constant expressions")
@@ -68,12 +74,18 @@ impl CanonContext<'_> {
         if constant.shape.is_scalar() {
             let scalar = constant.constant[(0, 0)];
             return match self.canonicalize_expr(other, for_objective) {
-                CanonExpr::Linear(l) => CanonExpr::Linear(l.scale(scalar)),
+                CanonExpr::Linear(l) => CanonExpr::Linear(LinExpr {
+                    shape: result_shape,
+                    ..l.scale(scalar)
+                }),
                 CanonExpr::Quadratic(q) => CanonExpr::Quadratic(q.scale(scalar)),
             };
         }
         let other = self.canonicalize_expr(other, false).as_linear().clone();
-        CanonExpr::Linear(self.elementwise_mul_const_lin(&constant.constant, &other))
+        CanonExpr::Linear(LinExpr {
+            shape: result_shape,
+            ..self.elementwise_mul_const_lin(&constant.constant, &other)
+        })
     }
 
     fn elementwise_mul_const_lin(&self, c: &DMatrix<f64>, lin: &LinExpr) -> LinExpr {
