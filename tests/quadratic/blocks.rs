@@ -118,6 +118,77 @@ fn scalar_blocks_survive_global_normalization_underflow() {
 }
 
 #[test]
+fn connected_small_positive_directions_survive_permutations() {
+    for (large, small) in [(1.0, 1e-16_f64), (1.0, 1e-18), (3.0, 1e-18), (1e308, 1e-18)] {
+        let matrix = DMatrix::from_row_slice(
+            3,
+            3,
+            &[
+                large, small, large, small, small, small, large, small, large,
+            ],
+        );
+        let map = DMatrix::from_column_slice(3, 1, &[0.0, 1.0 / small.sqrt(), 0.0]);
+        for order in [
+            [0, 1, 2],
+            [0, 2, 1],
+            [1, 0, 2],
+            [1, 2, 0],
+            [2, 0, 1],
+            [2, 1, 0],
+        ] {
+            let permuted = DMatrix::from_fn(3, 3, |i, j| matrix[(order[i], order[j])]);
+            let map = DMatrix::from_fn(3, 1, |i, j| map[(order[i], j)]);
+            for sign in [1.0, -1.0] {
+                for p in representations(&permuted * sign) {
+                    assert_eq!(
+                        PsdStatus::of_array(p.constant_value().unwrap()),
+                        if sign > 0.0 {
+                            PsdStatus::Psd
+                        } else {
+                            PsdStatus::Nsd
+                        },
+                        "large={large}, small={small}, order={order:?}"
+                    );
+                    assert_mapped_quadratic(&p, &map, &DMatrix::from_element(1, 1, sign), sign);
+                    let y = variable(());
+                    let q = quad_form(&matmul(&constant_dmatrix(map.clone()), &y), &p);
+                    let bound = if sign > 0.0 { q.le(1.0) } else { q.ge(-1.0) };
+                    let solution = Problem::maximize(y.clone())
+                        .constraint(bound)
+                        .build()
+                        .solve()
+                        .unwrap();
+                    assert_eq!(solution.status, SolveStatus::Optimal);
+                    assert_abs_diff_eq!(solution.value(&y), 1.0, epsilon = 1e-6);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn weakly_connected_small_blocks_retain_all_positive_directions() {
+    let small_block = DMatrix::from_row_slice(2, 2, &[2.0, 1.0, 1.0, 2.0]);
+    for (large, small) in [(1.0, 1e-18_f64), (1e308, 1e-18)] {
+        let matrix = DMatrix::from_fn(4, 4, |i, j| match (i < 2, j < 2) {
+            (true, true) => large,
+            (false, false) => small * small_block[(i - 2, j - 2)],
+            _ => small,
+        });
+        let map = small_block_map(small);
+        for order in [[0, 1, 2, 3], [0, 2, 1, 3], [2, 0, 3, 1], [3, 2, 1, 0]] {
+            let permuted = DMatrix::from_fn(4, 4, |i, j| matrix[(order[i], order[j])]);
+            let map = DMatrix::from_fn(4, 2, |i, j| map[(order[i], j)]);
+            for sign in [1.0, -1.0] {
+                for p in representations(&permuted * sign) {
+                    assert_mapped_quadratic(&p, &map, &(&small_block * sign), sign);
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn mixed_sign_blocks_use_the_global_spectral_tolerance() {
     // The large block has spectral radius 2; the full matrix has dimension 4.
     let tolerance = 16.0 * 4.0 * f64::EPSILON * 2.0;

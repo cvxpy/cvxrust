@@ -70,9 +70,16 @@ pub(crate) fn analyze(array: &Array) -> Option<Analysis> {
         return Some(analyze_diagonal(matrix, scale));
     }
     for (kind, sign) in [(Definiteness::Psd, 1.0), (Definiteness::Nsd, -1.0)] {
+        if let Some(factor) = balanced_psd_factor(&matrix, sign) {
+            return Some(Analysis {
+                kind,
+                matrix,
+                factor: Some(factor),
+            });
+        }
         if let Some(cholesky) = (&matrix * sign).cholesky() {
             let factor = cholesky.l().transpose();
-            if factor.iter().all(|value| value.is_finite()) {
+            if factor_matches(&matrix, sign, &factor) {
                 return Some(Analysis {
                     kind,
                     matrix,
@@ -112,6 +119,116 @@ fn analyze_diagonal(mut matrix: DMatrix<f64>, scale: f64) -> Analysis {
         matrix,
         factor,
     }
+}
+
+fn diagonal_scales(matrix: &DMatrix<f64>, sign: f64) -> Option<DVector<f64>> {
+    let n = matrix.nrows();
+    let mut scales = DVector::zeros(n);
+    for i in 0..n {
+        let diagonal = sign * matrix[(i, i)];
+        if !diagonal.is_finite() || diagonal < 0.0 {
+            return None;
+        }
+        if diagonal == 0.0 && (0..n).any(|j| matrix[(i, j)] != 0.0) {
+            return None;
+        }
+        scales[i] = diagonal.sqrt();
+    }
+    Some(scales)
+}
+
+fn equilibrate(matrix: &DMatrix<f64>, sign: f64, scales: &DVector<f64>) -> DMatrix<f64> {
+    DMatrix::from_fn(matrix.nrows(), matrix.ncols(), |i, j| {
+        if scales[i] == 0.0 || scales[j] == 0.0 {
+            0.0
+        } else {
+            // Sequential division avoids overflow or underflow in the product.
+            let (i, j) = (i.min(j), i.max(j));
+            sign * matrix[(i, j)] / scales[i] / scales[j]
+        }
+    })
+}
+
+fn factor_matches(matrix: &DMatrix<f64>, sign: f64, factor: &DMatrix<f64>) -> bool {
+    let Some(scales) = diagonal_scales(matrix, sign) else {
+        return false;
+    };
+    if (0..matrix.ncols())
+        .any(|j| scales[j] == 0.0 && factor.column(j).iter().any(|value| *value != 0.0))
+    {
+        return false;
+    }
+    let balanced = equilibrate(matrix, sign, &scales);
+    let normalized = DMatrix::from_fn(factor.nrows(), factor.ncols(), |i, j| {
+        if scales[j] == 0.0 {
+            factor[(i, j)]
+        } else {
+            factor[(i, j)] / scales[j]
+        }
+    });
+    let residual = normalized.transpose() * normalized - balanced;
+    factor.iter().all(|value| value.is_finite())
+        && residual.iter().all(|value| {
+            value.is_finite() && value.abs() <= 4.0 * relative_tolerance(matrix.nrows())
+        })
+}
+
+fn balanced_psd_factor(matrix: &DMatrix<f64>, sign: f64) -> Option<DMatrix<f64>> {
+    let n = matrix.nrows();
+    let scales = diagonal_scales(matrix, sign)?;
+    let mut residual = equilibrate(matrix, sign, &scales);
+    if !residual.iter().all(|value| value.is_finite()) {
+        return None;
+    }
+    let mut order: Vec<_> = (0..n).collect();
+    let mut factor = DMatrix::zeros(n, n);
+    for k in 0..n {
+        let pivot_position = (k..n).max_by(|&i, &j| {
+            residual[(order[i], order[i])].total_cmp(&residual[(order[j], order[j])])
+        })?;
+        order.swap(k, pivot_position);
+        let pivot = order[k];
+        let diagonal = residual[(pivot, pivot)];
+        if diagonal < 0.0 {
+            return None;
+        }
+        if diagonal == 0.0 {
+            // A zero diagonal permits no nonzero entries in the remaining block.
+            if order[k..]
+                .iter()
+                .any(|&i| order[k..].iter().any(|&j| residual[(i, j)] != 0.0))
+            {
+                return None;
+            }
+            break;
+        }
+        // Keep every positive pivot, including values below roundoff tolerance.
+        let root = diagonal.sqrt();
+        factor[(k, pivot)] = root;
+        for &j in &order[(k + 1)..] {
+            factor[(k, j)] = root * (residual[(pivot, j)] / diagonal);
+        }
+        // LDL^T updates avoid square-root roundoff in singular Schur blocks.
+        for (position, &i) in order[(k + 1)..].iter().enumerate() {
+            for &j in &order[(k + 1 + position)..] {
+                let (larger, smaller) = if residual[(i, pivot)].abs() >= residual[(j, pivot)].abs()
+                {
+                    (residual[(i, pivot)], residual[(j, pivot)])
+                } else {
+                    (residual[(j, pivot)], residual[(i, pivot)])
+                };
+                let value = (-larger / diagonal).mul_add(smaller, residual[(i, j)]);
+                residual[(i, j)] = value;
+                residual[(j, i)] = value;
+            }
+        }
+    }
+    for j in 0..n {
+        for i in 0..n {
+            factor[(i, j)] *= scales[j];
+        }
+    }
+    factor_matches(matrix, sign, &factor).then_some(factor)
 }
 
 struct SpectralBlock {
@@ -250,18 +367,13 @@ fn analyze_eigen(mut matrix: DMatrix<f64>, scale: f64, max_iterations: usize) ->
                 }
             }
         }
-        let normalized_factor = block_factor.map(|value| value / root_scale);
-        let residual = normalized_factor.transpose() * normalized_factor * sign
-            - DMatrix::from_fn(size, size, |i, j| {
-                matrix[(indices[i], indices[j])] / block.scale
-            });
-        // Check each block at its own scale, including blocks below the global
-        // clipping tolerance whose correctly signed eigenvalues must be retained.
-        let block_tolerance = relative_tolerance(size) * block.values.amax();
-        if !residual
-            .iter()
-            .all(|value| value.is_finite() && value.abs() <= 4.0 * block_tolerance)
-        {
+        let effective = DMatrix::from_fn(size, size, |i, j| matrix[(indices[i], indices[j])]);
+        if let Some(balanced_factor) = balanced_psd_factor(&effective, sign) {
+            block_factor = balanced_factor;
+        }
+        // Check in diagonal-scaled coordinates so small connected directions
+        // receive the same relative accuracy as large ones.
+        if !factor_matches(&effective, sign, &block_factor) {
             return None;
         }
         for i in 0..size {
@@ -472,6 +584,38 @@ mod tests {
                 1.0,
                 epsilon = 1e-15
             );
+        }
+    }
+
+    #[test]
+    fn strict_factor_rejects_negative_pivots_and_nonzero_null_rows() {
+        for matrix in [
+            DMatrix::from_element(1, 1, -1e-18),
+            DMatrix::from_row_slice(2, 2, &[1.0, 1.0 + 1e-15, 1.0 + 1e-15, 1.0]),
+            DMatrix::from_row_slice(
+                3,
+                3,
+                &[1.0, 1.0 - 1e-15, 1.0, 1.0 - 1e-15, 1.0, 1.0, 1.0, 1.0, 1.0],
+            ),
+            DMatrix::from_row_slice(2, 2, &[1.0, 1e-18, 1e-18, 0.0]),
+        ] {
+            for sign in [1.0, -1.0] {
+                assert!(balanced_psd_factor(&(&matrix * sign), sign).is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn factor_reconstruction_checks_small_and_zero_diagonals() {
+        let matrix = DMatrix::from_diagonal(&DVector::from_vec(vec![1.0, 1e-18, 0.0]));
+        let valid = DMatrix::from_diagonal(&DVector::from_vec(vec![1.0, 1e-9, 0.0]));
+        let missing = DMatrix::from_diagonal(&DVector::from_vec(vec![1.0, 0.0, 0.0]));
+        let nonzero_null = DMatrix::from_diagonal(&DVector::from_vec(vec![1.0, 1e-9, 1e-200]));
+        for sign in [1.0, -1.0] {
+            let signed = &matrix * sign;
+            assert!(factor_matches(&signed, sign, &valid));
+            assert!(!factor_matches(&signed, sign, &missing));
+            assert!(!factor_matches(&signed, sign, &nonzero_null));
         }
     }
 
