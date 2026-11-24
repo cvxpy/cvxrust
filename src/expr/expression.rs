@@ -108,11 +108,11 @@ pub enum Expr {
     MatMul(Arc<Expr>, Arc<Expr>),
 
     // Nonlinear atoms
-    /// L1 norm: `||x||_1`.
+    /// L1 norm of all entries.
     Norm1(Arc<Expr>),
-    /// L2 norm: `||x||_2`.
+    /// Euclidean norm of all entries.
     Norm2(Arc<Expr>),
-    /// Infinity norm: `||x||_{inf}`.
+    /// Largest absolute entry.
     NormInf(Arc<Expr>),
     /// Absolute value (elementwise).
     Abs(Arc<Expr>),
@@ -126,9 +126,9 @@ pub enum Expr {
     Minimum(Vec<Arc<Expr>>),
     /// Quadratic form: `x^T P x`.
     QuadForm(Arc<Expr>, Arc<Expr>),
-    /// Sum of squares: `||x||_2^2`.
+    /// Sum of squares of all entries.
     SumSquares(Arc<Expr>),
-    /// Quadratic over linear: `||x||_2^2 / y`.
+    /// `sum_squares(x) / y` for scalar `y`.
     QuadOverLin(Arc<Expr>, Arc<Expr>),
     /// Exponential: `exp(x)` (elementwise).
     Exp(Arc<Expr>),

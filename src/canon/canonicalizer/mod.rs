@@ -46,7 +46,7 @@ pub enum ConeConstraint {
     /// Exponential cone:
     ///
     /// ```text
-    /// {(x, y, z) | y >= 0, y * exp(x/y) <= z}
+    /// {(x, y, z) | y > 0, y * exp(x/y) <= z}
     /// union {(x, y, z) | x <= 0, y = 0, z >= 0}
     /// ```
     ///

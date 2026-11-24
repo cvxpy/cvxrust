@@ -637,7 +637,7 @@ fn test_variable_product_not_dcp() {
 
 #[test]
 fn test_variable_matmul_not_dcp() {
-    // x y is not DCP
+    // The outer product x y^T is not DCP.
     let x = variable(3);
     let y = variable(3);
     let prod = matmul(&x, &transpose(&y));

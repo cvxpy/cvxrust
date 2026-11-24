@@ -399,9 +399,7 @@ fn test_large_coefficients() {
 fn test_near_degenerate() {
     let x = variable(2);
 
-    // x_1 + x_2 = 1
-    // x_1 + 1.0001*x_2 = 1.0001
-    // These are nearly parallel - tests numerical stability
+    // The coordinate equality fixes x = [0.5, 0.5], consistent with sum(x) = 1.
     let c1 = sum(&x).eq(constant(1.0));
     let c2 = (&x + &constant_vec(vec![0.0, 0.0001])).eq(constant_vec(vec![0.5, 0.5001]));
 

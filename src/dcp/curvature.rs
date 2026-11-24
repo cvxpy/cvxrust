@@ -282,7 +282,7 @@ impl Expr {
                     // x^1 = x is affine
                     x.curvature()
                 } else if *p == 2.0 {
-                    // x^2 is convex when x is affine (same as sum_squares)
+                    // Elementwise x^2 is convex when x is affine.
                     if x.curvature().is_affine() {
                         Curvature::Convex
                     } else {

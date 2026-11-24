@@ -15,7 +15,7 @@ use crate::expr::Expr;
 
 // Norms (all convex)
 
-/// L1 norm: `||x||_1 = sum(|x_i|)`.
+/// L1 norm of the flattened entries: `||vec(x)||_1`.
 ///
 /// Properties:
 /// - Curvature: Convex
@@ -25,7 +25,8 @@ pub fn norm1(x: &Expr) -> Expr {
     Expr::Norm1(Arc::new(x.clone()))
 }
 
-/// L2 norm: `||x||_2 = sqrt(sum(x_i^2))`.
+/// Euclidean norm of the flattened entries: `||vec(x)||_2`.
+/// For matrices, this is the Frobenius norm.
 ///
 /// Properties:
 /// - Curvature: Convex
@@ -35,7 +36,7 @@ pub fn norm2(x: &Expr) -> Expr {
     Expr::Norm2(Arc::new(x.clone()))
 }
 
-/// Infinity norm: `||x||_{inf} = max(|x_i|)`.
+/// Largest absolute entry: `||vec(x)||_{inf}`.
 ///
 /// Properties:
 /// - Curvature: Convex
@@ -45,16 +46,12 @@ pub fn norm_inf(x: &Expr) -> Expr {
     Expr::NormInf(Arc::new(x.clone()))
 }
 
-/// General p-norm: `||x||_p = (sum(|x_i|^p))^(1/p)`.
+/// p-norm of the flattened entries: `(sum_i |x_i|^p)^(1/p)`.
 ///
 /// For `p >= 1`, this is convex. We support:
 /// - `p = 1`: L1 norm
 /// - `p = 2`: L2 norm
 /// - `p = f64::INFINITY`: Infinity norm
-///
-/// General p-norm.
-///
-/// Currently supports p = 1, 2, or infinity.
 ///
 /// # Panics
 ///
@@ -188,19 +185,21 @@ pub fn quad_form(x: &Expr, p: &Expr) -> Expr {
     Expr::QuadForm(Arc::new(x.clone()), Arc::new(p.clone()))
 }
 
-/// Sum of squares: `||x||_2^2 = x^T x`.
+/// Sum of squares of all entries.
+///
+/// For vectors, this is `x^T x = ||x||_2^2`; for matrices, it is `||x||_F^2`.
 ///
 /// Properties:
 /// - Curvature: Convex
 /// - Sign: Non-negative
 /// - Monotonicity: Increasing for `x >= 0`, decreasing for `x <= 0`
 ///
-/// This is equivalent to `quad_form(x, I)` where `I` is identity.
+/// For affine vectors, this is equivalent to `quad_form(x, I)` with identity `I`.
 pub fn sum_squares(x: &Expr) -> Expr {
     Expr::SumSquares(Arc::new(x.clone()))
 }
 
-/// Quadratic over linear: `||x||_2^2 / y`.
+/// Sum of squares of all entries of `x`, divided by scalar `y`.
 ///
 /// Properties:
 /// - Curvature: Convex (when x is affine and y is concave and positive)
@@ -239,7 +238,7 @@ pub fn entropy(x: &Expr) -> Expr {
 /// - `p > 1` or `p < 0`: Convex when x is affine and nonnegative
 /// - `0 < p < 1`: Concave when x is affine and nonnegative
 /// - `p = 1`: Affine
-/// - `p = 2`: Same as `sum_squares` (but less efficient)
+/// - `p = 2`: Elementwise square; equals `sum_squares(x)` only for scalar `x`
 ///
 /// Uses native power cones for better performance than exp/log reformulation.
 pub fn power(x: &Expr, p: f64) -> Expr {

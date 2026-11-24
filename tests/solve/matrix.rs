@@ -8,15 +8,12 @@ SPDX-License-Identifier: Apache-2.0
 use super::TOL;
 use cvxrust::prelude::*;
 
-/// BUG #1: Sparse constants silently become zeros
-/// The canonicalizer at canonicalizer.rs:187-191 returns `LinExpr::zeros()` for sparse constants
-/// instead of properly converting them.
+/// Sparse constants retain their entries during canonicalization.
 #[test]
 fn test_bug_sparse_constant_becomes_zero() {
     use nalgebra_sparse::{CooMatrix, CscMatrix};
 
-    // Create a simple sparse matrix with non-zero values
-    // This is a 3 x 1 column vector with values [1.0, 2.0, 3.0] stored as sparse
+    // Sparse column vector [1, 2, 3].
     let mut coo = CooMatrix::new(3, 1);
     coo.push(0, 0, 1.0);
     coo.push(1, 0, 2.0);
@@ -28,7 +25,6 @@ fn test_bug_sparse_constant_becomes_zero() {
 
     // minimize sum(x) s.t. x >= sparse_const
     // With sparse_const = [1, 2, 3], optimal x = [1, 2, 3], value = 6
-    // BUG: sparse_const becomes [0, 0, 0], so optimal x = [0, 0, 0], value = 0
     let prob = Problem::minimize(sum(&x))
         .subject_to([x.ge(sparse_const)])
         .build();
@@ -42,8 +38,6 @@ fn test_bug_sparse_constant_becomes_zero() {
     let expected = 6.0; // sum([1, 2, 3])
     let rel_err = (value - expected).abs() / (1.0 + expected.abs());
 
-    // This test will FAIL until the bug is fixed
-    // Currently value ~= 0 because sparse constant becomes zeros
     assert!(
         rel_err < TOL,
         "BUG: Sparse constant became zeros! Expected {}, got {} (rel_err={})",
@@ -53,8 +47,7 @@ fn test_bug_sparse_constant_becomes_zero() {
     );
 }
 
-/// BUG #2: Right matrix multiplication `x A` doesn't actually multiply
-/// The canonicalizer at canonicalizer.rs:263-266 just returns `a.clone()` without multiplying.
+/// Right matrix multiplication preserves the matrix coefficients.
 #[test]
 fn test_bug_right_matmul_broken() {
     use nalgebra::DMatrix;
@@ -68,8 +61,7 @@ fn test_bug_right_matmul_broken() {
 
     // y = x A should be [2*x[0], 3*x[1]] (row vector multiplied by matrix)
     // minimize sum(y) s.t. x >= 1
-    // With x A working: optimal x = [1, 1], y = [2, 3], value = 5
-    // BUG: x A returns x unchanged, so y = x, value = 2
+    // Optimal x = [1, 1], y = [2, 3], value = 5.
     let y = matmul(&x, &a);
     let prob = Problem::minimize(sum(&y))
         .subject_to([x.ge(constant(1.0))])
@@ -84,8 +76,6 @@ fn test_bug_right_matmul_broken() {
     let expected = 5.0; // 2 + 3
     let rel_err = (value - expected).abs() / (1.0 + expected.abs());
 
-    // This test will FAIL until the bug is fixed
-    // Currently value ~= 2 because x A returns x unchanged
     assert!(
         rel_err < TOL,
         "BUG: Right matmul x @ A didn't multiply! Expected {}, got {} (rel_err={})",
@@ -95,8 +85,7 @@ fn test_bug_right_matmul_broken() {
     );
 }
 
-/// BUG #3: Left matmul with sparse constant matrix doesn't multiply
-/// The canonicalizer at canonicalizer.rs:243 returns `b.clone()` for sparse `A` in `A x`
+/// Left multiplication by a sparse matrix preserves its coefficients.
 #[test]
 fn test_bug_left_matmul_sparse_broken() {
     use nalgebra_sparse::{CooMatrix, CscMatrix};
@@ -113,8 +102,7 @@ fn test_bug_left_matmul_sparse_broken() {
 
     // y = A x should be [2*x[0], 3*x[1]]
     // minimize sum(y) s.t. x >= 1
-    // With A x working: optimal x = [1, 1], y = [2, 3], value = 5
-    // BUG: A x returns x unchanged (for sparse A), so y = x, value = 2
+    // Optimal x = [1, 1], y = [2, 3], value = 5.
     let y = matmul(&a, &x);
     let prob = Problem::minimize(sum(&y))
         .subject_to([x.ge(constant(1.0))])
@@ -129,8 +117,6 @@ fn test_bug_left_matmul_sparse_broken() {
     let expected = 5.0; // 2 + 3
     let rel_err = (value - expected).abs() / (1.0 + expected.abs());
 
-    // This test will FAIL until the bug is fixed
-    // Currently value ~= 2 because sparse A x returns x unchanged
     assert!(
         rel_err < TOL,
         "BUG: Left matmul with sparse A @ x didn't multiply! Expected {}, got {} (rel_err={})",

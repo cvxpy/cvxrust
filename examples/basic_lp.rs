@@ -8,7 +8,7 @@ SPDX-License-Identifier: Apache-2.0
 //! This example demonstrates solving a simple linear program:
 //!
 //! ```text
-//! minimize    c^T x
+//! maximize    c^T x
 //! subject to  A x <= b, x >= 0
 //! ```
 

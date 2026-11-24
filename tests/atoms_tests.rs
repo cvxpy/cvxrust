@@ -302,8 +302,6 @@ fn test_dual_values_shadow_price() {
 
     if let Some(duals) = solution.duals() {
         println!("Dual values: {:?}", duals);
-        // First constraint (x+y>=10) should have dual ~= -1
-        // (negative because of Clarabel's convention)
     }
 }
 
