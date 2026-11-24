@@ -90,13 +90,13 @@ pub(super) fn eval_sum(a: Array, axis: Option<usize>) -> crate::Result<Array> {
             Ok(Array::Scalar(total))
         }
         Some(0) => {
-            // Sum along axis 0 (rows) → column vector of size ncols
+            // Summing rows produces a column vector of size ncols.
             let m = arr_to_dense(a);
             let result = DMatrix::from_fn(m.ncols(), 1, |j, _| m.column(j).iter().sum::<f64>());
             Ok(Array::Dense(result))
         }
         Some(1) => {
-            // Sum along axis 1 (cols) → column vector of size nrows
+            // Summing columns produces a column vector of size nrows.
             let m = arr_to_dense(a);
             let result = DMatrix::from_fn(m.nrows(), 1, |i, _| m.row(i).iter().sum::<f64>());
             Ok(Array::Dense(result))

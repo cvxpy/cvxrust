@@ -28,23 +28,29 @@ mod structural;
 #[cfg(test)]
 mod tests;
 
-/// A cone constraint in standard form: Ax + b in K.
+/// A cone constraint in standard form: `A x + b in K`.
 #[derive(Debug, Clone)]
 pub enum ConeConstraint {
-    /// Zero cone: Ax + b = 0 (equality).
+    /// Zero cone: `A x + b = 0` (equality).
     Zero { a: LinExpr },
-    /// Nonnegative cone: Ax + b >= 0.
+    /// Nonnegative cone: `A x + b >= 0`.
     NonNeg { a: LinExpr },
-    /// Second-order cone: ||x||_2 <= t.
-    /// Represented as [t; x] in K_soc.
+    /// Second-order cone: `||x||_2 <= t`.
+    /// Represented as `[t; x] in K_{soc}`.
     SOC {
         /// The scalar t expression.
         t: LinExpr,
         /// The vector x expression.
         x: LinExpr,
     },
-    /// Exponential cone: {(x, y, z) | y ≥ 0, y*exp(x/y) ≤ z} ∪ {(x,y,z) | x ≤ 0, y = 0, z ≥ 0}
-    /// Variable order is (x, y, z).
+    /// Exponential cone:
+    ///
+    /// ```text
+    /// {(x, y, z) | y > 0, y * exp(x/y) <= z}
+    /// union {(x, y, z) | x <= 0, y = 0, z >= 0}
+    /// ```
+    ///
+    /// Variable order is `(x, y, z)`.
     ExpCone {
         /// The x expression.
         x: LinExpr,
@@ -53,8 +59,8 @@ pub enum ConeConstraint {
         /// The z expression.
         z: LinExpr,
     },
-    /// Power cone: {(x, y, z) : x^α * y^(1-α) ≥ |z|, (x,y) ≥ 0} with α ∈ (0,1)
-    /// Variable order is (x, y, z).
+    /// Power cone: `{(x, y, z) | x^(alpha) * y^(1-alpha) >= |z|, (x, y) >= 0}`
+    /// with `alpha in (0, 1)`. Variable order is `(x, y, z)`.
     PowerCone {
         /// The x expression.
         x: LinExpr,
@@ -62,7 +68,7 @@ pub enum ConeConstraint {
         y: LinExpr,
         /// The z expression.
         z: LinExpr,
-        /// The power α ∈ (0,1).
+        /// The power `alpha in (0, 1)`.
         alpha: f64,
     },
 }

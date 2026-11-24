@@ -6,9 +6,9 @@ SPDX-License-Identifier: Apache-2.0
 //! Constraint types for optimization problems.
 //!
 //! Constraints map to cone constraints in the solver:
-//! - Zero: Ax + b = 0 (zero cone / equality)
-//! - NonNeg: Ax + b >= 0 (nonnegative orthant)
-//! - SOC: ||x|| <= t (second-order cone)
+//! - Zero: `A x + b = 0` (zero cone / equality)
+//! - NonNeg: `A x + b >= 0` (nonnegative orthant)
+//! - SOC: `||x||_2 <= t` (second-order cone)
 
 use std::sync::Arc;
 
@@ -17,16 +17,16 @@ use crate::expr::Expr;
 /// A constraint in an optimization problem.
 #[derive(Debug, Clone)]
 pub enum Constraint {
-    /// Equality constraint: expr == 0.
+    /// Equality constraint: `expr == 0`.
     /// Maps to the zero cone.
     Zero(Arc<Expr>),
 
-    /// Inequality constraint: expr >= 0.
+    /// Inequality constraint: `expr >= 0`.
     /// Maps to the nonnegative orthant cone.
     NonNeg(Arc<Expr>),
 
-    /// Second-order cone constraint: ||x||_2 <= t.
-    /// The t argument must be scalar, x can be a vector.
+    /// Second-order cone constraint: `||x||_2 <= t`.
+    /// The `t` argument must be scalar; `x` can be a vector.
     SOC {
         /// The scalar upper bound.
         t: Arc<Expr>,
@@ -36,7 +36,7 @@ pub enum Constraint {
 }
 
 impl Constraint {
-    /// Create an equality constraint: lhs == rhs (with broadcasting).
+    /// Create an equality constraint: `lhs == rhs` (with broadcasting).
     pub fn eq(lhs: Expr, rhs: Expr) -> Self {
         let (lhs, rhs) = Self::broadcast_if_needed(lhs, rhs);
         Constraint::Zero(Arc::new(Expr::Add(
@@ -45,7 +45,7 @@ impl Constraint {
         )))
     }
 
-    /// Create an inequality constraint: lhs <= rhs (with broadcasting).
+    /// Create an inequality constraint: `lhs <= rhs` (with broadcasting).
     pub fn leq(lhs: Expr, rhs: Expr) -> Self {
         let (lhs, rhs) = Self::broadcast_if_needed(lhs, rhs);
         // lhs <= rhs  <=>  rhs - lhs >= 0
@@ -55,7 +55,7 @@ impl Constraint {
         )))
     }
 
-    /// Create an inequality constraint: lhs >= rhs (with broadcasting).
+    /// Create an inequality constraint: `lhs >= rhs` (with broadcasting).
     pub fn geq(lhs: Expr, rhs: Expr) -> Self {
         let (lhs, rhs) = Self::broadcast_if_needed(lhs, rhs);
         // lhs >= rhs  <=>  lhs - rhs >= 0
@@ -70,7 +70,7 @@ impl Constraint {
         crate::atoms::broadcast::broadcast_exprs(lhs, rhs)
     }
 
-    /// Create a SOC constraint: ||x||_2 <= t.
+    /// Create a SOC constraint: `||x||_2 <= t`.
     pub fn soc(t: Expr, x: Expr) -> Self {
         Constraint::SOC {
             t: Arc::new(t),
@@ -82,7 +82,7 @@ impl Constraint {
     ///
     /// DCP rules for constraints:
     /// - Zero: expression must be affine (equality of affine expressions)
-    /// - NonNeg: expression must be concave (concave >= 0)
+    /// - NonNeg: expression must be concave (`concave >= 0`)
     /// - SOC: both t and x must be affine
     pub fn is_dcp(&self) -> bool {
         match self {
@@ -115,17 +115,17 @@ impl Constraint {
 
 /// Extension trait for creating constraints from expressions.
 pub trait ConstraintExt {
-    /// Create equality constraint: self == rhs.
+    /// Create equality constraint: `self == rhs`.
     ///
     /// The rhs can be any type that converts to Expr (f64, Vec, etc.).
     fn eq<E: Into<Expr>>(&self, rhs: E) -> Constraint;
 
-    /// Create inequality constraint: self <= rhs.
+    /// Create inequality constraint: `self <= rhs`.
     ///
     /// The rhs can be any type that converts to Expr (f64, Vec, etc.).
     fn le<E: Into<Expr>>(&self, rhs: E) -> Constraint;
 
-    /// Create inequality constraint: self >= rhs.
+    /// Create inequality constraint: `self >= rhs`.
     ///
     /// The rhs can be any type that converts to Expr (f64, Vec, etc.).
     fn ge<E: Into<Expr>>(&self, rhs: E) -> Constraint;

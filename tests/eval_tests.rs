@@ -7,13 +7,13 @@ use cvxrust::prelude::*;
 
 const TOL: f64 = 1e-4;
 
-// ── helpers ──────────────────────────────────────────────────────────────────
+// helpers
 
 fn approx(a: f64, b: f64) -> bool {
     (a - b).abs() < TOL
 }
 
-// ── variable access ───────────────────────────────────────────────────────────
+// variable access
 
 #[test]
 fn test_value_scalar_variable() {
@@ -44,18 +44,18 @@ fn test_value_vector_variable_indexing() {
     assert!(approx(vals[(0, 0)], via_index[(0, 0)]));
     assert!(approx(vals[(1, 0)], via_index[(1, 0)]));
     assert!(approx(vals[(2, 0)], via_index[(2, 0)]));
-    // All elements should be ~1.0
+    // All elements should be approximately 1.0
     for i in 0..3 {
         assert!(approx(vals[(i, 0)], 1.0));
     }
 }
 
-// ── affine expressions ────────────────────────────────────────────────────────
+// affine expressions
 
 #[test]
 fn test_value_affine_scale_and_shift() {
-    // minimize x  s.t.  x >= 3  → x* = 3
-    // expr = 2*x + 1  →  value = 7
+    // minimize x  s.t.  x >= 3  => x^* = 3
+    // expr = 2*x + 1  =>  value = 7
     let x = variable(());
     let expr = &x * 2.0 + constant(1.0);
     let sol = Problem::minimize(x.clone())
@@ -109,8 +109,8 @@ fn test_value_broadcasted_row_and_column_affine_expressions() {
 
 #[test]
 fn test_value_matmul_residual() {
-    // minimize ||Ax - b||^2  s.t.  x >= 0
-    // A = I (2x2), b = [3, 4]  →  x* = [3, 4], residual = [0, 0]
+    // minimize ||A x - b||^2  s.t.  x >= 0
+    // A = I (2 x 2), b = [3, 4]  =>  x^* = [3, 4], residual = [0, 0]
     let a = constant_matrix(vec![1.0, 0.0, 0.0, 1.0], 2, 2);
     let b = constant_vec(vec![3.0, 4.0]);
     let x = variable(2);
@@ -128,7 +128,7 @@ fn test_value_matmul_residual() {
 
 #[test]
 fn test_value_sum_of_vector() {
-    // minimize sum(x)  s.t.  x >= 2  →  x* = [2,2,2], sum = 6
+    // minimize sum(x)  s.t.  x >= 2  =>  x^* = [2,2,2], sum = 6
     let x = variable(3);
     let sol = Problem::minimize(sum(&x))
         .subject_to([x.ge(2.0)])
@@ -139,11 +139,11 @@ fn test_value_sum_of_vector() {
     assert!(approx(s, 6.0), "expected 6.0, got {s}");
 }
 
-// ── nonlinear atoms ───────────────────────────────────────────────────────────
+// nonlinear atoms
 
 #[test]
 fn test_value_norm2_matches_objective() {
-    // minimize norm2(x)  s.t.  x >= 1  →  x* = [1,1], norm2 = sqrt(2)
+    // minimize norm2(x)  s.t.  x >= 1  =>  x^* = [1,1], norm2 = sqrt(2)
     let x = variable(2);
     let obj = norm2(&x);
     let sol = Problem::minimize(obj.clone())
@@ -162,7 +162,7 @@ fn test_value_norm2_matches_objective() {
 
 #[test]
 fn test_value_norm1() {
-    // minimize norm1(x)  s.t.  x >= 1  →  x* = [1,1,1], norm1 = 3
+    // minimize norm1(x)  s.t.  x >= 1  =>  x^* = [1,1,1], norm1 = 3
     let x = variable(3);
     let obj = norm1(&x);
     let sol = Problem::minimize(obj.clone())
@@ -176,7 +176,7 @@ fn test_value_norm1() {
 
 #[test]
 fn test_value_norm_inf() {
-    // minimize norm_inf(x)  s.t.  x >= [1, 2]  →  x* = [1, 2], norm_inf = 2
+    // minimize norm_inf(x)  s.t.  x >= [1, 2]  =>  x^* = [1, 2], norm_inf = 2
     let x = variable(2);
     let obj = norm_inf(&x);
     let sol = Problem::minimize(obj.clone())
@@ -190,7 +190,7 @@ fn test_value_norm_inf() {
 
 #[test]
 fn test_value_sum_squares_matches_objective() {
-    // minimize sum_squares(x)  s.t.  x >= 2  →  x* = [2,2], sum_squares = 8
+    // minimize sum_squares(x)  s.t.  x >= 2  =>  x^* = [2,2], sum_squares = 8
     let x = variable(2);
     let obj = sum_squares(&x);
     let sol = Problem::minimize(obj.clone())
@@ -209,7 +209,7 @@ fn test_value_sum_squares_matches_objective() {
 
 #[test]
 fn test_value_abs() {
-    // minimize x  s.t.  x >= -5  →  x* = -5, abs(x) = 5
+    // minimize x  s.t.  x >= -5  =>  x^* = -5, abs(x) = 5
     let x = variable(());
     let sol = Problem::minimize(x.clone())
         .subject_to([x.ge(-5.0)])
@@ -220,7 +220,7 @@ fn test_value_abs() {
     assert!(approx(v, 5.0), "expected 5.0, got {v}");
 }
 
-// ── eval returns Result ───────────────────────────────────────────────────────
+// eval returns Result
 
 #[test]
 fn test_eval_missing_variable_returns_err() {
@@ -251,12 +251,12 @@ fn test_eval_returns_ok_for_constant() {
     assert!(approx(c.value(&sol).as_scalar().unwrap(), 42.0));
 }
 
-// ── multiple variables ────────────────────────────────────────────────────────
+// multiple variables
 
 #[test]
 fn test_value_expression_with_two_variables() {
-    // minimize x + y  s.t.  x >= 1, y >= 2  →  x*=1, y*=2
-    // evaluate x - y  →  1 - 2 = -1
+    // minimize x + y  s.t.  x >= 1, y >= 2  =>  x^* = 1, y^* = 2
+    // evaluate x - y  =>  1 - 2 = -1
     let x = variable(());
     let y = variable(());
     let obj = x.clone() + y.clone();
@@ -271,9 +271,9 @@ fn test_value_expression_with_two_variables() {
     assert!(approx(v, -1.0), "expected -1.0, got {v}");
 }
 
-// ── old API / new API parity ──────────────────────────────────────────────────
+// old API / new API parity
 
-/// solution.value(&x)  ==  x.value(&solution).as_scalar()
+/// `solution.value(&x) == x.value(&solution).as_scalar()`.
 #[test]
 fn test_parity_scalar_variable() {
     let x = variable(());
@@ -287,7 +287,7 @@ fn test_parity_scalar_variable() {
     assert!(approx(old, new), "old={old}, new={new}");
 }
 
-/// &solution[&x][(i,j)]  ==  x.value(&solution)[(i,j)]  for all elements
+/// `&solution[&x][(i,j)] == x.value(&solution)[(i,j)]` for all elements.
 #[test]
 fn test_parity_vector_variable_all_elements() {
     let x = variable(4);
@@ -303,7 +303,7 @@ fn test_parity_vector_variable_all_elements() {
     }
 }
 
-/// &solution[&x][(i,j)]  ==  x.value(&solution)[(i,j)]  for a larger vector
+/// `&solution[&x][(i,j)] == x.value(&solution)[(i,j)]` for a larger vector.
 #[test]
 fn test_parity_large_vector_variable() {
     let x = variable(5);
@@ -323,7 +323,7 @@ fn test_parity_large_vector_variable() {
     }
 }
 
-// ── value() vs solution.value consistency ────────────────────────────────────
+// value() vs solution.value consistency
 
 #[test]
 fn test_value_objective_matches_solution_value() {

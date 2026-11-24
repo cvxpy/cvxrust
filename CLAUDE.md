@@ -58,6 +58,11 @@ SPDX-License-Identifier: Apache-2.0
 - Write concise, precise English and standard mathematical notation. Avoid
   unnecessary jargon, promotional language, and defensive commentary.
 - Follow Boyd and Vandenberghe's *Convex Optimization* notation where applicable.
+- Use ASCII in docs and comments, preserving names, quotations, license notices,
+  literal code, and runtime strings.
+- Use `x^T P x`, `x_i`, `P_{ij}`, `x^2`, and `x^*`; spell out Greek letters.
+- Put formulas in inline code or `text` fences. Use short comment labels without
+  decorative separators.
 - Explain problems and mathematical steps in execution order. Prefer vector and
   matrix notation when it improves clarity.
 - Keep examples minimal. Explain non-obvious assumptions, domain restrictions,

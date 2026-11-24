@@ -376,7 +376,7 @@ fn test_eval_with_solution() {
         .subject_to([x.ge(3.0)])
         .solve()
         .unwrap();
-    // The variable x should be ~3.0, so 2*x ~= 6.0
+    // x ~= 3.0, so 2*x ~= 6.0
     let v = obj.value(&solution).as_scalar().unwrap();
     assert!((v - 6.0).abs() < 1e-4);
 }

@@ -57,8 +57,8 @@ pub trait Evaluable {
 impl Expr {
     /// Evaluate this expression given variable values from a solution.
     ///
-    /// This allows computing the value of any expression — not just variables —
-    /// after solving a problem. It mirrors CVXPY's `expr.value` attribute.
+    /// Evaluate any expression after solving a problem, as with CVXPY's
+    /// `expr.value` attribute.
     ///
     /// # Example
     ///

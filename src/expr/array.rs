@@ -10,7 +10,7 @@ use nalgebra_sparse::CscMatrix;
 
 use super::shape::Shape;
 
-/// Form (P + P') / 2 with stable averaging.
+/// Form `(P + P^T) / 2` with stable averaging.
 pub(crate) fn symmetric_part(matrix: &DMatrix<f64>) -> DMatrix<f64> {
     debug_assert!(matrix.is_square());
     let mut symmetric = matrix.clone();

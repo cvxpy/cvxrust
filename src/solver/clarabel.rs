@@ -178,12 +178,12 @@ fn unpack_primal(x: &[f64], var_map: &VariableMap) -> HashMap<ExprId, Array> {
     result
 }
 
-/// Compute objective value: (1/2) x' P x + q' x.
+/// Compute objective value: `(1/2) x^T P x + q^T x`.
 fn compute_objective(x: &[f64], p: &nalgebra_sparse::CscMatrix<f64>, q: &[f64]) -> f64 {
-    // q' x
+    // q^T x
     let linear: f64 = q.iter().zip(x.iter()).map(|(qi, xi)| qi * xi).sum();
 
-    // (1/2) x' P x
+    // (1/2) x^T P x
     let mut quadratic = 0.0;
     for (row, col, val) in p.triplet_iter() {
         if row == col {

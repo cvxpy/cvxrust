@@ -8,7 +8,7 @@ SPDX-License-Identifier: Apache-2.0
 //! Shapes follow NumPy conventions:
 //! - `()` or `[]` is a scalar
 //! - `(n,)` or `[n]` is a vector of length n
-//! - `(m, n)` or `[m, n]` is an m x n matrix
+//! - `(m, n)` or `[m, n]` is an `m x n` matrix
 
 use std::fmt;
 
@@ -158,15 +158,15 @@ impl Shape {
     pub fn matmul(&self, other: &Shape) -> Option<Shape> {
         // Handle various cases
         match (self.ndim(), other.ndim()) {
-            // matrix @ scalar, treating scalar as a 1x1 column
+            // Matrix-scalar product, treating the scalar as a 1 x 1 column
             (2, 0) if self.cols() == 1 => Some(Shape::vector(self.rows())),
-            // matrix @ matrix
+            // Matrix-matrix product
             (2, 2) if self.cols() == other.rows() => Some(Shape::matrix(self.rows(), other.cols())),
-            // matrix @ vector
+            // Matrix-vector product
             (2, 1) if self.cols() == other.rows() => Some(Shape::vector(self.rows())),
-            // vector @ matrix (treated as row vector)
+            // Vector-matrix product (vector treated as a row)
             (1, 2) if self.rows() == other.rows() => Some(Shape::vector(other.cols())),
-            // vector @ vector (dot product)
+            // Vector dot product
             (1, 1) if self.rows() == other.rows() => Some(Shape::scalar()),
             _ => None,
         }
@@ -305,19 +305,19 @@ mod tests {
 
     #[test]
     fn test_matmul() {
-        // matrix @ matrix
+        // Matrix-matrix product
         assert_eq!(
             Shape::matrix(3, 4).matmul(&Shape::matrix(4, 5)),
             Some(Shape::matrix(3, 5))
         );
 
-        // matrix @ vector
+        // Matrix-vector product
         assert_eq!(
             Shape::matrix(3, 4).matmul(&Shape::vector(4)),
             Some(Shape::vector(3))
         );
 
-        // vector @ vector (dot product)
+        // Vector dot product
         assert_eq!(
             Shape::vector(3).matmul(&Shape::vector(3)),
             Some(Shape::scalar())

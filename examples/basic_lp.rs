@@ -7,18 +7,20 @@ SPDX-License-Identifier: Apache-2.0
 //!
 //! This example demonstrates solving a simple linear program:
 //!
-//! minimize    c'x
-//! subject to  Ax <= b, x >= 0
+//! ```text
+//! maximize    c^T x
+//! subject to  A x <= b, x >= 0
+//! ```
 
 use cvxrust::prelude::*;
 
 fn main() {
     println!("=== Basic Linear Program ===\n");
 
-    // Problem: Maximize profit = 3*x1 + 2*x2 + 5*x3
+    // Problem: Maximize profit = 3*x_1 + 2*x_2 + 5*x_3
     // subject to:
-    //   2*x1 + x2 + 3*x3 <= 100  (resource constraint 1)
-    //   x1 + 2*x2 + x3 <= 80     (resource constraint 2)
+    //   2*x_1 + x_2 + 3*x_3 <= 100  (resource constraint 1)
+    //   x_1 + 2*x_2 + x_3 <= 80     (resource constraint 2)
     //   x >= 0
 
     println!("Problem: Maximize 3*x1 + 2*x2 + 5*x3");
@@ -35,7 +37,7 @@ fn main() {
     let a = constant_matrix(vec![2.0, 1.0, 3.0, 1.0, 2.0, 1.0], 2, 3);
     let b = constant_vec(vec![100.0, 80.0]);
 
-    // Objective: maximize c'x (minimize -c'x)
+    // Objective: maximize c^T x (minimize -c^T x)
     let objective = -dot(&c, &x);
 
     // Solve

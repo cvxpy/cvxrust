@@ -158,7 +158,7 @@ pub(super) fn eval_diag(a: Array) -> Array {
     let m = arr_to_dense(a);
     let (rows, cols) = (m.nrows(), m.ncols());
     if cols == 1 || rows == 1 {
-        // Vector → diagonal matrix
+        // Vector to diagonal matrix
         let n = rows.max(cols);
         let mut result = DMatrix::zeros(n, n);
         for i in 0..n {
@@ -167,7 +167,7 @@ pub(super) fn eval_diag(a: Array) -> Array {
         }
         Array::Dense(result)
     } else {
-        // Matrix → diagonal vector
+        // Matrix to diagonal vector
         let n = rows.min(cols);
         let data: Vec<f64> = (0..n).map(|i| m[(i, i)]).collect();
         Array::Dense(DMatrix::from_vec(n, 1, data))

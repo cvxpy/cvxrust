@@ -119,7 +119,7 @@ pub fn csc_scale(a: &CscMatrix<f64>, scalar: f64) -> CscMatrix<f64> {
         .expect("valid CSC structure should remain valid when scaling values")
 }
 
-/// Multiply sparse matrix by dense matrix on the right: A_sparse @ B_dense
+/// Multiply a CSC matrix by a dense matrix on the right.
 pub fn sparse_dense_matmul(a: &CscMatrix<f64>, b: &DMatrix<f64>) -> CscMatrix<f64> {
     // Convert sparse to dense, multiply, convert back
     // This is not optimal but correct
@@ -149,7 +149,7 @@ pub fn csc_hstack(a: &CscMatrix<f64>, b: &CscMatrix<f64>) -> CscMatrix<f64> {
     csc_from_triplets(a.nrows(), a.ncols() + b.ncols(), rows, cols, vals)
 }
 
-/// Multiply two CSC matrices: A @ B
+/// Multiply two CSC matrices: `A B`.
 pub fn csc_matmul(a: &CscMatrix<f64>, b: &CscMatrix<f64>) -> CscMatrix<f64> {
     // Use nalgebra-sparse's built-in multiplication
     a * b

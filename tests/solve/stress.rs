@@ -11,9 +11,7 @@ use nalgebra::DMatrix;
 
 const STRESS_TOL: f64 = 1e-3; // Slightly looser tolerance for complex problems
 
-// ========================================================================
 // quad_form stress tests
-// ========================================================================
 
 /// quad_form with non-diagonal PSD matrix
 #[test]
@@ -23,13 +21,13 @@ fn test_quad_form_non_diagonal() {
     let p = constant_dmatrix(p_mat);
     let x = variable(2);
 
-    // minimize x'Px s.t. x1 + x2 = 1
-    // x'Px = 2x1^2 + 2x1*x2 + 2x2^2
-    // With constraint x2 = 1 - x1:
-    // f(x1) = 2x1^2 + 2x1(1-x1) + 2(1-x1)^2
-    //       = 2x1^2 + 2x1 - 2x1^2 + 2 - 4x1 + 2x1^2
-    //       = 2x1^2 - 2x1 + 2
-    // df/dx1 = 4x1 - 2 = 0 => x1 = 0.5, x2 = 0.5
+    // minimize x^T P x s.t. x_1 + x_2 = 1
+    // x^T P x = 2*x_1^2 + 2*x_1*x_2 + 2*x_2^2
+    // With constraint x_2 = 1 - x_1:
+    // f(x_1) = 2*x_1^2 + 2*x_1*(1-x_1) + 2*(1-x_1)^2
+    //        = 2*x_1^2 + 2*x_1 - 2*x_1^2 + 2 - 4*x_1 + 2*x_1^2
+    //        = 2*x_1^2 - 2*x_1 + 2
+    // Stationarity: 4*x_1 - 2 = 0 => x_1 = 0.5, x_2 = 0.5
     // value = 2(0.25) + 2(0.5)(0.5) + 2(0.25) = 0.5 + 0.5 + 0.5 = 1.5
     let prob = Problem::minimize(quad_form(&x, &p))
         .subject_to([sum(&x).eq(constant(1.0))])
@@ -51,7 +49,7 @@ fn test_quad_form_non_diagonal() {
     );
 }
 
-/// quad_form with 3x3 matrix
+/// `quad_form` with a `3 x 3` matrix.
 #[test]
 fn test_quad_form_3x3() {
     // P = diag(1, 2, 3)
@@ -59,11 +57,11 @@ fn test_quad_form_3x3() {
     let p = constant_dmatrix(p_mat);
     let x = variable(3);
 
-    // minimize x'Px = x1^2 + 2*x2^2 + 3*x3^2 s.t. sum(x) = 1
-    // Lagrangian optimality: 2x1 = 4x2 = 6x3 = -λ
-    // x1 = -λ/2, x2 = -λ/4, x3 = -λ/6
-    // sum = -λ(1/2 + 1/4 + 1/6) = -λ(6+3+2)/12 = -11λ/12 = 1 => λ = -12/11
-    // x1 = 6/11, x2 = 3/11, x3 = 2/11
+    // minimize x^T P x = x_1^2 + 2*x_2^2 + 3*x_3^2 s.t. sum(x) = 1
+    // Lagrangian optimality: 2*x_1 = 4*x_2 = 6*x_3 = -lambda
+    // x_1 = -lambda/2, x_2 = -lambda/4, x_3 = -lambda/6
+    // sum = -lambda*(1/2 + 1/4 + 1/6) = -11*lambda/12 = 1 => lambda = -12/11
+    // x_1 = 6/11, x_2 = 3/11, x_3 = 2/11
     // value = (6/11)^2 + 2*(3/11)^2 + 3*(2/11)^2
     //       = 36/121 + 18/121 + 12/121 = 66/121 = 6/11
     let prob = Problem::minimize(quad_form(&x, &p))
@@ -83,22 +81,20 @@ fn test_quad_form_3x3() {
     );
 }
 
-// ========================================================================
 // Matmul stress tests
-// ========================================================================
 
-/// Nested matmul: A @ (B @ x)
+/// Nested matmul: `A (B x)`.
 #[test]
 fn test_nested_matmul() {
-    // A is 2x3, B is 3x2, x is 2x1
-    // A @ B is 2x2, (A @ B) @ x is 2x1
+    // A is 2 x 3, B is 3 x 2, x is 2 x 1
+    // A B is 2 x 2, (A B) x is 2 x 1
     let a_mat = DMatrix::from_vec(2, 3, vec![1.0, 0.0, 0.0, 1.0, 1.0, 1.0]);
     let b_mat = DMatrix::from_vec(3, 2, vec![1.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
     let a = constant_dmatrix(a_mat.clone());
     let b = constant_dmatrix(b_mat.clone());
     let x = variable(2);
 
-    // y = A @ (B @ x)
+    // y = A (B x)
     let bx = matmul(&b, &x);
     let y = matmul(&a, &bx);
 
@@ -112,12 +108,12 @@ fn test_nested_matmul() {
     assert_eq!(solution.status, SolveStatus::Optimal);
 
     // Compute expected:
-    // A (2x3) = [[1,0,1], [0,1,1]] (row-major view)
-    // B (3x2) = [[1,0], [0,1], [0,0]] (row-major view)
-    // B @ x where x is 2x1 gives 3x1
-    // A @ (B @ x) gives 2x1
-    // With x = [1,1], B @ [1,1] = [1, 1, 0]
-    // A @ [1, 1, 0] = [1*1+0*1+1*0, 0*1+1*1+1*0] = [1, 1]
+    // A (2 x 3) = [[1,0,1], [0,1,1]] (row-major view)
+    // B (3 x 2) = [[1,0], [0,1], [0,0]] (row-major view)
+    // B x where x is 2 x 1 gives 3 x 1
+    // A (B x) gives 2 x 1
+    // With x = [1,1], B [1,1] = [1, 1, 0]
+    // A [1, 1, 0] = [1*1+0*1+1*0, 0*1+1*1+1*0] = [1, 1]
     // sum = 2
     let value = solution.value.expect("should have value");
     let expected = 2.0;
@@ -134,7 +130,7 @@ fn test_nested_matmul() {
 /// Matmul with non-square matrix
 #[test]
 fn test_matmul_nonsquare() {
-    // A is 2x4, x is 4x1, result is 2x1
+    // A is 2 x 4, x is 4 x 1, result is 2 x 1
     let a_mat = DMatrix::from_vec(
         2,
         4,
@@ -148,10 +144,10 @@ fn test_matmul_nonsquare() {
     let a = constant_dmatrix(a_mat);
     let x = variable(4);
 
-    // minimize sum(A @ x) s.t. x >= 0, sum(x) = 1
-    // A @ x = [1*x1 + 3*x2 + 5*x3 + 7*x4, 2*x1 + 4*x2 + 6*x3 + 8*x4]
-    // sum(A @ x) = 3*x1 + 7*x2 + 11*x3 + 15*x4
-    // To minimize with sum(x)=1, x>=0: put all weight on x1
+    // minimize sum(A x) s.t. x >= 0, sum(x) = 1
+    // A x = [1*x_1 + 3*x_2 + 5*x_3 + 7*x_4, 2*x_1 + 4*x_2 + 6*x_3 + 8*x_4]
+    // sum(A x) = 3*x_1 + 7*x_2 + 11*x_3 + 15*x_4
+    // To minimize with sum(x)=1, x>=0: put all weight on x_1
     // optimal: x = [1, 0, 0, 0], value = 3
     let prob = Problem::minimize(sum(&matmul(&a, &x)))
         .subject_to([x.ge(constant(0.0)), sum(&x).eq(constant(1.0))])
@@ -170,10 +166,10 @@ fn test_matmul_nonsquare() {
     );
 }
 
-/// Right matmul: x @ A (row vector times matrix)
+/// Right matmul: `x A` (row vector times matrix).
 #[test]
 fn test_right_matmul_row_vector() {
-    // x is 1x3 row vector, A is 3x2, result is 1x2
+    // x is 1 x 3 row vector, A is 3 x 2, result is 1 x 2
     let a_mat = DMatrix::from_vec(
         3,
         2,
@@ -183,11 +179,11 @@ fn test_right_matmul_row_vector() {
         ],
     );
     let a = constant_dmatrix(a_mat);
-    let x = variable((1, 3)); // 1x3 row vector
+    let x = variable((1, 3)); // 1 x 3 row vector
 
-    // minimize sum(x @ A) s.t. x >= 1
-    // x @ A = [x1 + 2*x2 + 3*x3, 4*x1 + 5*x2 + 6*x3]
-    // sum = 5*x1 + 7*x2 + 9*x3
+    // minimize sum(x A) s.t. x >= 1
+    // x A = [x_1 + 2*x_2 + 3*x_3, 4*x_1 + 5*x_2 + 6*x_3]
+    // sum = 5*x_1 + 7*x_2 + 9*x_3
     // optimal: x = [1, 1, 1], value = 21
     let prob = Problem::minimize(sum(&matmul(&x, &a)))
         .subject_to([x.ge(constant(1.0))])
@@ -206,9 +202,7 @@ fn test_right_matmul_row_vector() {
     );
 }
 
-// ========================================================================
 // Mixed variable tests
-// ========================================================================
 
 /// Multiple variables in objective
 #[test]
@@ -295,9 +289,7 @@ fn test_variable_multiple_constraints() {
     );
 }
 
-// ========================================================================
 // vstack/hstack stress tests
-// ========================================================================
 
 /// vstack in objective
 #[test]
@@ -305,7 +297,7 @@ fn test_vstack_objective() {
     let x = variable(2);
     let y = variable(2);
 
-    // vstack([x, y]) is 4x1
+    // vstack([x, y]) is 4 x 1
     // minimize ||vstack([x, y])||_2 s.t. sum(x) = 1, sum(y) = 1
     let stacked = vstack(vec![x.clone(), y.clone()]);
     let prob = Problem::minimize(norm2(&stacked))
@@ -352,9 +344,7 @@ fn test_vstack_constraint() {
     );
 }
 
-// ========================================================================
 // Numerical edge cases
-// ========================================================================
 
 /// Very small coefficients
 #[test]
@@ -409,9 +399,7 @@ fn test_large_coefficients() {
 fn test_near_degenerate() {
     let x = variable(2);
 
-    // x1 + x2 = 1
-    // x1 + 1.0001*x2 = 1.0001
-    // These are nearly parallel - tests numerical stability
+    // The coordinate equality fixes x = [0.5, 0.5], consistent with sum(x) = 1.
     let c1 = sum(&x).eq(constant(1.0));
     let c2 = (&x + &constant_vec(vec![0.0, 0.0001])).eq(constant_vec(vec![0.5, 0.5001]));
 
@@ -423,9 +411,7 @@ fn test_near_degenerate() {
     assert!(result.is_ok() || result.is_err());
 }
 
-// ========================================================================
 // Constraint combination tests
-// ========================================================================
 
 /// Mix of equality and inequality constraints
 #[test]
@@ -498,9 +484,7 @@ fn test_multiple_socp() {
     );
 }
 
-// ========================================================================
 // Regression tests for fixed bugs
-// ========================================================================
 
 /// Regression: sparse constant in constraint (bug #1)
 #[test]
@@ -535,7 +519,7 @@ fn test_regression_sparse_constant_constraint() {
 fn test_regression_sparse_matmul() {
     use nalgebra_sparse::{CooMatrix, CscMatrix};
 
-    // Sparse 3x3 matrix with only diagonal: [[2,0,0], [0,3,0], [0,0,4]]
+    // Sparse 3 x 3 matrix with only diagonal: [[2,0,0], [0,3,0], [0,0,4]]
     let mut coo = CooMatrix::new(3, 3);
     coo.push(0, 0, 2.0);
     coo.push(1, 1, 3.0);
@@ -545,8 +529,8 @@ fn test_regression_sparse_matmul() {
     let a = constant_sparse(sparse);
     let x = variable(3);
 
-    // minimize sum(A @ x) s.t. x >= 1
-    // A @ x = [2*x1, 3*x2, 4*x3]
+    // minimize sum(A x) s.t. x >= 1
+    // A x = [2*x_1, 3*x_2, 4*x_3]
     // sum = 2 + 3 + 4 = 9
     let prob = Problem::minimize(sum(&matmul(&a, &x)))
         .subject_to([x.ge(constant(1.0))])
@@ -564,9 +548,7 @@ fn test_regression_sparse_matmul() {
     );
 }
 
-// ========================================================================
 // Larger scale tests
-// ========================================================================
 
 /// 200 variables LP
 #[test]
@@ -634,9 +616,7 @@ fn test_scale_50_qp() {
     );
 }
 
-// ========================================================================
 // Expression complexity tests
-// ========================================================================
 
 /// Deeply nested expression
 #[test]

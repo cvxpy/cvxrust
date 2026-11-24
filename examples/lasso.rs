@@ -7,7 +7,9 @@ SPDX-License-Identifier: Apache-2.0
 //!
 //! This example demonstrates L1-regularized least squares:
 //!
-//! minimize    ||Ax - b||_2^2 + lambda * ||x||_1
+//! ```text
+//! minimize    ||A x - b||_2^2 + lambda * ||x||_1
+//! ```
 //!
 //! L1 regularization encourages sparse solutions.
 
@@ -27,7 +29,7 @@ fn main() {
         0.5, 0.1, 0.5, 0.4, 0.2, 0.6, 0.1, 0.9, 0.1, 0.2,
     ], 6, 10);
 
-    // True model: y = 3*x1 + 2*x4 + 1*x8 (sparse!)
+    // True model: y = 3*x_1 + 2*x_4 + 1*x_8 (sparse!)
     let b = constant_vec(vec![4.6, 4.9, 3.7, 4.7, 3.5, 3.2]);
 
     println!("Problem: Recover sparse coefficients (6 samples, 10 features)");

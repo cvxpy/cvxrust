@@ -64,7 +64,7 @@ impl Curvature {
     }
 }
 
-/// Combine curvatures for addition: a + b.
+/// Combine curvatures for addition: `a + b`.
 pub fn add_curvature(a: Curvature, b: Curvature) -> Curvature {
     use Curvature::*;
     match (a, b) {
@@ -85,11 +85,11 @@ pub fn add_curvature(a: Curvature, b: Curvature) -> Curvature {
     }
 }
 
-/// Combine curvatures for scalar multiplication: scalar * expr.
+/// Combine curvatures for scalar multiplication: `scalar * expr`.
 ///
-/// If scalar > 0: preserves curvature
-/// If scalar < 0: negates curvature
-/// If scalar == 0: constant
+/// If `scalar > 0`: preserves curvature
+/// If `scalar < 0`: negates curvature
+/// If `scalar == 0`: constant
 pub fn scalar_mul_curvature(scalar: f64, expr_curv: Curvature) -> Curvature {
     if scalar == 0.0 {
         Curvature::Constant
@@ -197,7 +197,7 @@ impl Expr {
                 }
             }
             Expr::Maximum(exprs) => {
-                // max(x1, ..., xn) is convex if all xi are convex
+                // max(x_1, ..., x_n) is convex if all x_i are convex
                 if exprs.iter().all(|e| e.curvature().is_convex()) {
                     Curvature::Convex
                 } else {
@@ -205,7 +205,7 @@ impl Expr {
                 }
             }
             Expr::Minimum(exprs) => {
-                // min(x1, ..., xn) is concave if all xi are concave
+                // min(x_1, ..., x_n) is concave if all x_i are concave
                 if exprs.iter().all(|e| e.curvature().is_concave()) {
                     Curvature::Concave
                 } else {
@@ -213,8 +213,8 @@ impl Expr {
                 }
             }
             Expr::QuadForm(x, p) => {
-                // x'Px: convex if P is PSD and x is affine
-                //       concave if P is NSD and x is affine
+                // x^T P x: convex if P is PSD and x is affine
+                //          concave if P is NSD and x is affine
                 if !x.curvature().is_affine() {
                     return Curvature::Unknown;
                 }
@@ -282,7 +282,7 @@ impl Expr {
                     // x^1 = x is affine
                     x.curvature()
                 } else if *p == 2.0 {
-                    // x^2 is convex when x is affine (same as sum_squares)
+                    // Elementwise x^2 is convex when x is affine.
                     if x.curvature().is_affine() {
                         Curvature::Convex
                     } else {
@@ -379,16 +379,16 @@ fn matmul_curvature(a: &Expr, b: &Expr) -> Curvature {
     let ac = a.curvature();
     let bc = b.curvature();
 
-    // Constant @ anything = preserves curvature
+    // A constant left factor preserves curvature
     if ac.is_constant() {
         return bc;
     }
-    // Anything @ constant = preserves curvature
+    // A constant right factor preserves curvature
     if bc.is_constant() {
         return ac;
     }
 
-    // affine @ affine = quadratic (not DCP unless one side is constant)
+    // Affine matrix products are quadratic (not DCP unless one side is constant)
     Curvature::Unknown
 }
 

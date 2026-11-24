@@ -49,7 +49,7 @@ impl VariableBuilder {
         self
     }
 
-    /// Constrain the variable to be non-negative (x >= 0).
+    /// Constrain the variable to be non-negative (`x >= 0`).
     /// Replaces any previous non-positive declaration on this builder.
     pub fn nonneg(mut self) -> Self {
         self.nonneg = true;
@@ -57,7 +57,7 @@ impl VariableBuilder {
         self
     }
 
-    /// Constrain the variable to be non-positive (x <= 0).
+    /// Constrain the variable to be non-positive (`x <= 0`).
     /// Replaces any previous non-negative declaration on this builder.
     pub fn nonpos(mut self) -> Self {
         self.nonpos = true;

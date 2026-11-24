@@ -134,8 +134,8 @@ impl CanonContext<'_> {
         let new_const = ca.constant.transpose();
 
         // For coefficients: we need to permute rows to match the transpose
-        // Original flat index: i + j*m (column-major for m×n matrix)
-        // Transposed flat index: j + i*n (column-major for n×m matrix)
+        // Original flat index: i + j*m (column-major for m x n matrix)
+        // Transposed flat index: j + i*n (column-major for n x m matrix)
         // Build permutation: perm[old_idx] = new_idx
         let size = m * n;
         let mut perm = vec![0usize; size];

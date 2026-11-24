@@ -7,14 +7,16 @@ SPDX-License-Identifier: Apache-2.0
 //!
 //! This example demonstrates linear regression:
 //!
-//! minimize    ||Ax - b||_2^2
+//! ```text
+//! minimize    ||A x - b||_2^2
+//! ```
 
 use cvxrust::prelude::*;
 
 fn main() {
     println!("=== Least Squares Regression ===\n");
 
-    // Fit a line y = w0 + w1*x to data
+    // Fit a line y = w_0 + w_1*x to data
     let a = constant_matrix(vec![1.0, 1.0, 1.0, 2.0, 1.0, 3.0, 1.0, 4.0, 1.0, 5.0], 5, 2);
     let b = constant_vec(vec![3.1, 5.2, 6.8, 9.1, 10.9]);
 

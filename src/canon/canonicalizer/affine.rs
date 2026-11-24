@@ -92,7 +92,7 @@ impl CanonContext<'_> {
     }
 
     fn elementwise_mul_const_lin(&self, c: &DMatrix<f64>, lin: &LinExpr) -> LinExpr {
-        // Element-wise multiplication: diag(c) @ lin
+        // Element-wise multiplication: diag(c) lin
         // For flat representation, this scales each row of coefficients by corresponding c value
         let c_flat: Vec<f64> = c.iter().copied().collect();
         let size = lin.shape.size();
@@ -142,14 +142,14 @@ impl CanonContext<'_> {
         });
 
         if a_is_const && !b_is_const {
-            // A is constant expression, B has variables: A @ B is affine in B
+            // A is constant expression, B has variables: A B is affine in B
             let ca = self.canonicalize_expr(a, false).as_linear().clone();
             let cb = self.canonicalize_expr(b, false).as_linear().clone();
             let a_arr = Array::Dense(ca.constant);
             return CanonExpr::Linear(self.matmul_const_lin(&a_arr, &cb, result_shape));
         }
         if b_is_const && !a_is_const {
-            // B is constant expression, A has variables: A @ B is affine in A
+            // B is constant expression, A has variables: A B is affine in A
             let ca = self.canonicalize_expr(a, false).as_linear().clone();
             let cb = self.canonicalize_expr(b, false).as_linear().clone();
             let b_arr = Array::Dense(cb.constant);
@@ -170,9 +170,9 @@ impl CanonContext<'_> {
     }
 
     fn matmul_const_lin(&self, a: &Array, b: &LinExpr, shape: Shape) -> LinExpr {
-        // For matrix expression A @ E where E has shape (m, n):
-        // vec(A @ E) = (I_n ⊗ A) @ vec(E)
-        // So for coefficient C: new_C = (I_n ⊗ A) @ C
+        // For matrix expression A E where E has shape (m, n):
+        // vec(A E) = kron(I_n, A) vec(E), where kron is the Kronecker product.
+        // Transform each coefficient matrix C to kron(I_n, A) C.
         let a_mat = match a {
             Array::Dense(m) => m.clone(),
             Array::Scalar(v) => DMatrix::from_element(1, 1, *v),
@@ -186,7 +186,7 @@ impl CanonContext<'_> {
         let mut new_coeffs = std::collections::HashMap::new();
         for (var_id, coeff) in &b.coeffs {
             // Transform coefficient using Kronecker identity:
-            // (I_n ⊗ A) @ c = vec(A @ reshape(c, m, n)) for each column c
+            // kron(I_n, A) c = vec(A reshape(c, m, n)) for each column c
             let coeff_dense = csc_to_dense(coeff);
             let var_size = coeff_dense.ncols();
             let new_size = p * n;
@@ -219,9 +219,9 @@ impl CanonContext<'_> {
     }
 
     fn lin_matmul_const(&self, a: &LinExpr, b: &Array, shape: Shape) -> LinExpr {
-        // For matrix expression E @ B where E has shape (m, n):
-        // vec(E @ B) = (B' ⊗ I_m) @ vec(E)
-        // So for coefficient C: new_C = (B' ⊗ I_m) @ C
+        // For matrix expression E B where E has shape (m, n):
+        // vec(E B) = kron(B^T, I_m) vec(E).
+        // Transform each coefficient matrix C to kron(B^T, I_m) C.
         let b_mat = match b {
             Array::Dense(m) => m.clone(),
             Array::Scalar(v) => DMatrix::from_element(1, 1, *v),
@@ -235,7 +235,7 @@ impl CanonContext<'_> {
         let mut new_coeffs = std::collections::HashMap::new();
         for (var_id, coeff) in &a.coeffs {
             // Transform coefficient using Kronecker identity:
-            // (B' ⊗ I_m) @ c = vec(reshape(c, m, n) @ B) for each column c
+            // kron(B^T, I_m) c = vec(reshape(c, m, n) B) for each column c
             let coeff_dense = csc_to_dense(coeff);
             let var_size = coeff_dense.ncols();
             let new_size = m * p;
@@ -404,10 +404,10 @@ impl CanonContext<'_> {
 
     pub(super) fn canonicalize_cumsum(&mut self, x: &Expr, _axis: Option<usize>) -> CanonExpr {
         // Cumulative sum using auxiliary variables and constraints
-        // cumsum([x1, x2, x3]) = [y1, y2, y3] where:
-        //   y1 = x1
-        //   y2 = y1 + x2  =>  y2 - y1 = x2
-        //   y3 = y2 + x3  =>  y3 - y2 = x3
+        // cumsum([x_1, x_2, x_3]) = [y_1, y_2, y_3] where:
+        //   y_1 = x_1
+        //   y_2 = y_1 + x_2  =>  y_2 - y_1 = x_2
+        //   y_3 = y_2 + x_3  =>  y_3 - y_2 = x_3
 
         let cx = self.canonicalize_expr(x, false).as_linear().clone();
         let n = cx.size();
@@ -426,7 +426,7 @@ impl CanonContext<'_> {
                 let x0 = self.extract_element(&cx, i);
                 let y0 = self.extract_element(&y, i);
 
-                // Add constraint: y0 - x0 = 0
+                // Constrain `y0` to equal `x0`.
                 let diff = y0.add(&x0.scale(-1.0));
                 self.constraints.push(ConeConstraint::Zero { a: diff });
             } else {
@@ -446,8 +446,8 @@ impl CanonContext<'_> {
 }
 
 fn dense_sparse_matmul(dense: &DMatrix<f64>, sparse: &CscMatrix<f64>) -> CscMatrix<f64> {
-    // Dense @ Sparse multiplication
-    // Note: nalgebra_sparse doesn't support dense @ sparse directly.
+    // Multiply a dense matrix by a sparse matrix.
+    // nalgebra_sparse does not support this product directly.
     // A more efficient implementation would iterate through sparse columns.
     // For medium-scale problems (100-10k variables), this is acceptable.
     let result = dense * csc_to_dense(sparse);

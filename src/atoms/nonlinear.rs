@@ -13,50 +13,45 @@ use std::sync::Arc;
 use crate::atoms::broadcast::broadcast_elementwise_exprs;
 use crate::expr::Expr;
 
-// ============================================================================
 // Norms (all convex)
-// ============================================================================
 
-/// L1 norm: ||x||_1 = sum(|x_i|).
+/// L1 norm of the flattened entries: `||vec(x)||_1`.
 ///
 /// Properties:
 /// - Curvature: Convex
 /// - Sign: Non-negative
-/// - Monotonicity: Increasing for x >= 0, decreasing for x <= 0
+/// - Monotonicity: Increasing for `x >= 0`, decreasing for `x <= 0`
 pub fn norm1(x: &Expr) -> Expr {
     Expr::Norm1(Arc::new(x.clone()))
 }
 
-/// L2 norm: ||x||_2 = sqrt(sum(x_i^2)).
+/// Euclidean norm of the flattened entries: `||vec(x)||_2`.
+/// For matrices, this is the Frobenius norm.
 ///
 /// Properties:
 /// - Curvature: Convex
 /// - Sign: Non-negative
-/// - Monotonicity: Increasing for x >= 0, decreasing for x <= 0
+/// - Monotonicity: Increasing for `x >= 0`, decreasing for `x <= 0`
 pub fn norm2(x: &Expr) -> Expr {
     Expr::Norm2(Arc::new(x.clone()))
 }
 
-/// Infinity norm: ||x||_inf = max(|x_i|).
+/// Largest absolute entry: `||vec(x)||_{inf}`.
 ///
 /// Properties:
 /// - Curvature: Convex
 /// - Sign: Non-negative
-/// - Monotonicity: Increasing for x >= 0, decreasing for x <= 0
+/// - Monotonicity: Increasing for `x >= 0`, decreasing for `x <= 0`
 pub fn norm_inf(x: &Expr) -> Expr {
     Expr::NormInf(Arc::new(x.clone()))
 }
 
-/// General p-norm: ||x||_p = (sum(|x_i|^p))^(1/p).
+/// p-norm of the flattened entries: `(sum_i |x_i|^p)^(1/p)`.
 ///
-/// For p >= 1, this is convex. We support:
-/// - p = 1: L1 norm
-/// - p = 2: L2 norm
-/// - p = f64::INFINITY: Infinity norm
-///
-/// General p-norm.
-///
-/// Currently supports p = 1, 2, or infinity.
+/// For `p >= 1`, this is convex. We support:
+/// - `p = 1`: L1 norm
+/// - `p = 2`: L2 norm
+/// - `p = f64::INFINITY`: Infinity norm
 ///
 /// # Panics
 ///
@@ -97,21 +92,19 @@ pub fn try_norm(x: &Expr, p: f64) -> crate::Result<Expr> {
     }
 }
 
-// ============================================================================
 // Element-wise atoms
-// ============================================================================
 
-/// Absolute value: |x| (element-wise).
+/// Absolute value: `|x|` (element-wise).
 ///
 /// Properties:
 /// - Curvature: Convex
 /// - Sign: Non-negative
-/// - Monotonicity: Increasing for x >= 0, decreasing for x <= 0
+/// - Monotonicity: Increasing for `x >= 0`, decreasing for `x <= 0`
 pub fn abs(x: &Expr) -> Expr {
     Expr::Abs(Arc::new(x.clone()))
 }
 
-/// Positive part: max(x, 0) (element-wise).
+/// Positive part: `max(x, 0)` (element-wise).
 ///
 /// Properties:
 /// - Curvature: Convex
@@ -121,7 +114,7 @@ pub fn pos(x: &Expr) -> Expr {
     Expr::Pos(Arc::new(x.clone()))
 }
 
-/// Negative part: max(-x, 0) (element-wise).
+/// Negative part: `max(-x, 0)` (element-wise).
 ///
 /// Properties:
 /// - Curvature: Convex
@@ -131,9 +124,7 @@ pub fn neg_part(x: &Expr) -> Expr {
     Expr::NegPart(Arc::new(x.clone()))
 }
 
-// ============================================================================
 // Maximum and minimum
-// ============================================================================
 
 /// Maximum of expressions (element-wise if same shape).
 ///
@@ -181,14 +172,12 @@ pub fn min2(a: &Expr, b: &Expr) -> Expr {
     minimum(vec![a.clone(), b.clone()])
 }
 
-// ============================================================================
 // Quadratic atoms
-// ============================================================================
 
-/// Quadratic form xᵀPx.
+/// Quadratic form `x^T P x`.
 ///
 /// `x` must be affine and scalar, a vector, or a column matrix. `P` must be a
-/// matching constant symmetric matrix; scalar `P` denotes a 1×1 matrix.
+/// matching constant symmetric matrix; scalar `P` denotes a `1 x 1` matrix.
 /// Convex and nonnegative for PSD `P`; concave and nonpositive for NSD `P`.
 ///
 /// DCP checking supports scalar constants and definite dense matrices.
@@ -196,45 +185,47 @@ pub fn quad_form(x: &Expr, p: &Expr) -> Expr {
     Expr::QuadForm(Arc::new(x.clone()), Arc::new(p.clone()))
 }
 
-/// Sum of squares: ||x||_2^2 = x' x.
+/// Sum of squares of all entries.
+///
+/// For vectors, this is `x^T x = ||x||_2^2`; for matrices, it is `||x||_F^2`.
 ///
 /// Properties:
 /// - Curvature: Convex
 /// - Sign: Non-negative
-/// - Monotonicity: Increasing for x >= 0, decreasing for x <= 0
+/// - Monotonicity: Increasing for `x >= 0`, decreasing for `x <= 0`
 ///
-/// This is equivalent to quad_form(x, I) where I is identity.
+/// For affine vectors, this is equivalent to `quad_form(x, I)` with identity `I`.
 pub fn sum_squares(x: &Expr) -> Expr {
     Expr::SumSquares(Arc::new(x.clone()))
 }
 
-/// Quadratic over linear: ||x||_2^2 / y.
+/// Sum of squares of all entries of `x`, divided by scalar `y`.
 ///
 /// Properties:
 /// - Curvature: Convex (when x is affine and y is concave and positive)
 /// - Sign: Non-negative
-/// - Domain: y > 0
+/// - Domain: `y > 0`
 ///
 /// This is a perspective function and is jointly convex in (x, y).
 pub fn quad_over_lin(x: &Expr, y: &Expr) -> Expr {
     Expr::QuadOverLin(Arc::new(x.clone()), Arc::new(y.clone()))
 }
 
-/// Exponential function (elementwise): exp(x)
+/// Exponential function (elementwise): `exp(x)`.
 ///
 /// Convex when x is affine.
 pub fn exp(x: &Expr) -> Expr {
     Expr::Exp(Arc::new(x.clone()))
 }
 
-/// Natural logarithm (elementwise): log(x)
+/// Natural logarithm (elementwise): `log(x)`.
 ///
 /// Concave when x is concave (and positive).
 pub fn log(x: &Expr) -> Expr {
     Expr::Log(Arc::new(x.clone()))
 }
 
-/// Entropy (elementwise): -x * log(x)
+/// Entropy (elementwise): `-x * log(x)`.
 ///
 /// Concave when x is affine (and positive).
 /// Note: v1.0 implementation is simplified for scalar/small vectors.
@@ -242,19 +233,19 @@ pub fn entropy(x: &Expr) -> Expr {
     Expr::Entropy(Arc::new(x.clone()))
 }
 
-/// Power function (elementwise): x^p
+/// Power function (elementwise): `x^p`.
 ///
-/// - p > 1 or p < 0: Convex when x is affine and nonnegative
-/// - 0 < p < 1: Concave when x is affine and nonnegative
-/// - p = 1: Affine
-/// - p = 2: Same as sum_squares (but less efficient)
+/// - `p > 1` or `p < 0`: Convex when x is affine and nonnegative
+/// - `0 < p < 1`: Concave when x is affine and nonnegative
+/// - `p = 1`: Affine
+/// - `p = 2`: Elementwise square; equals `sum_squares(x)` only for scalar `x`
 ///
 /// Uses native power cones for better performance than exp/log reformulation.
 pub fn power(x: &Expr, p: f64) -> Expr {
     Expr::Power(Arc::new(x.clone()), p)
 }
 
-/// Square root: sqrt(x) = x^0.5
+/// Square root: `sqrt(x) = x^(0.5)`.
 ///
 /// Concave when x is affine and nonnegative.
 pub fn sqrt(x: &Expr) -> Expr {
