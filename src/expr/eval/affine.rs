@@ -111,8 +111,10 @@ pub(super) fn eval_sum(a: Array, axis: Option<usize>) -> crate::Result<Array> {
 pub(super) fn eval_trace(a: Array) -> Array {
     match a {
         Array::Scalar(v) => Array::Scalar(v),
-        Array::Dense(m) => Array::Scalar(m.trace()),
-        a @ Array::Sparse(_) => Array::Scalar(arr_to_dense(a).trace()),
+        a => {
+            let m = arr_to_dense(a);
+            Array::Scalar((0..m.nrows().min(m.ncols())).map(|i| m[(i, i)]).sum())
+        }
     }
 }
 

@@ -176,7 +176,7 @@ impl Expr {
                 Ok(eval_elementwise(a.eval(ctx)?, move |x| x.powf(p)))
             }
             Expr::Cumsum(a, axis) => eval_cumsum(a.eval(ctx)?, *axis),
-            Expr::Diag(a) => Ok(eval_diag(a.eval(ctx)?)),
+            Expr::Diag(a) => Ok(eval_diag(a.eval(ctx)?, &a.shape())),
         }
     }
 }

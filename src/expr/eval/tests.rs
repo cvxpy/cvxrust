@@ -50,6 +50,72 @@ fn test_eval_constant() {
 }
 
 #[test]
+fn test_eval_diag_preserves_input_shape() {
+    for (shape, entries, expected) in [
+        (Shape::scalar(), vec![2.0], DMatrix::from_element(1, 1, 2.0)),
+        (
+            Shape::vector(2),
+            vec![2.0, 3.0],
+            DMatrix::from_diagonal(&nalgebra::DVector::from_vec(vec![2.0, 3.0])),
+        ),
+        (
+            Shape::matrix(2, 1),
+            vec![2.0, 3.0],
+            DMatrix::from_element(1, 1, 2.0),
+        ),
+        (
+            Shape::matrix(1, 2),
+            vec![2.0, 3.0],
+            DMatrix::from_element(1, 1, 2.0),
+        ),
+        (
+            Shape::matrix(2, 2),
+            vec![2.0, 3.0, 4.0, 5.0],
+            DMatrix::from_vec(2, 1, vec![2.0, 5.0]),
+        ),
+    ] {
+        let matrix = DMatrix::from_vec(shape.rows(), shape.cols(), entries);
+        let x = variable(shape.clone());
+        let mut values = vec![
+            Array::Sparse(crate::sparse::dense_to_csc(&matrix)),
+            Array::Dense(matrix),
+        ];
+        if shape.is_scalar() {
+            values.push(Array::Scalar(2.0));
+        }
+        for value in values {
+            let ctx = TestCtx(HashMap::from([(x.variable_id().unwrap(), value)]));
+            let Array::Dense(actual) = diag(&x).eval(&ctx).unwrap() else {
+                panic!("diag should return a dense array");
+            };
+            assert_eq!(actual.shape(), expected.shape());
+            assert!((actual - &expected).norm() < 1e-12);
+        }
+    }
+}
+
+#[test]
+fn test_eval_trace_rectangular_matrices() {
+    let ctx = TestCtx(HashMap::new());
+    for (rows, cols, expected) in [
+        (1, 1, 2.0),
+        (2, 1, 2.0),
+        (1, 2, 2.0),
+        (2, 3, 4.0),
+        (3, 2, 4.0),
+    ] {
+        let matrix = DMatrix::from_element(rows, cols, 2.0);
+        for expression in [
+            constant_sparse(crate::sparse::dense_to_csc(&matrix)),
+            constant_dmatrix(matrix),
+        ] {
+            let actual = trace(&expression).eval(&ctx).unwrap().as_scalar().unwrap();
+            assert!((actual - expected).abs() < 1e-12);
+        }
+    }
+}
+
+#[test]
 fn test_eval_add_scalars() {
     let (x, ctx) = make_var_scalar(3.0);
     let expr = x.clone() + constant(2.0);
