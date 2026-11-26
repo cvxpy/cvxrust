@@ -89,3 +89,40 @@ fn scalar_objective_representations_preserve_values() {
         }
     }
 }
+
+#[test]
+fn sparse_scalar_objectives_compose() {
+    let x = variable(2);
+    let scalar = constant_sparse(csc_from_triplets(1, 1, vec![0], vec![0], vec![2.0]));
+    for (objective, expected) in [
+        (sum(&(&x + &scalar)), 6.0),
+        (quad_over_lin(&x, &scalar), 1.0),
+    ] {
+        for problem in [
+            Problem::minimize(objective.clone())
+                .constraint(x.eq(1.0))
+                .build(),
+            Problem::maximize(-&objective).constraint(x.eq(1.0)).build(),
+        ] {
+            let solution = problem.solve().unwrap();
+            assert_eq!(solution.status, SolveStatus::Optimal);
+            let expected = if problem.objective.is_minimize() {
+                expected
+            } else {
+                -expected
+            };
+            assert_abs_diff_eq!(solution.value.unwrap(), expected, epsilon = 1e-7);
+            assert_abs_diff_eq!(
+                problem
+                    .objective
+                    .expr()
+                    .eval(&solution)
+                    .unwrap()
+                    .as_scalar()
+                    .unwrap(),
+                expected,
+                epsilon = 1e-7
+            );
+        }
+    }
+}

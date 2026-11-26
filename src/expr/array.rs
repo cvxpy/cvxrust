@@ -60,6 +60,9 @@ impl Array {
         match self {
             Array::Scalar(v) => Some(*v),
             Array::Dense(m) if m.nrows() == 1 && m.ncols() == 1 => Some(m[(0, 0)]),
+            Array::Sparse(m) if m.nrows() == 1 && m.ncols() == 1 => {
+                Some(m.values().first().copied().unwrap_or(0.0))
+            }
             _ => None,
         }
     }
@@ -147,6 +150,7 @@ impl std::ops::Index<(usize, usize)> for Array {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use approx::assert_abs_diff_eq;
 
     #[test]
     fn test_array_scalar() {
@@ -154,6 +158,38 @@ mod tests {
         assert_eq!(arr.as_scalar(), Some(5.0));
         assert!(arr.is_nonneg());
         assert!(!arr.is_nonpos());
+    }
+
+    #[test]
+    fn test_scalar_extraction_preserves_storage_values() {
+        use crate::sparse::csc_from_triplets;
+
+        for value in [-3.0, 0.0, 2.0] {
+            for array in [
+                Array::Scalar(value),
+                Array::Dense(DMatrix::from_element(1, 1, value)),
+                Array::Sparse(csc_from_triplets(1, 1, vec![0], vec![0], vec![value])),
+            ] {
+                assert_abs_diff_eq!(array.as_scalar().unwrap(), value, epsilon = 1e-12);
+            }
+        }
+        assert_abs_diff_eq!(
+            Array::Sparse(CscMatrix::zeros(1, 1)).as_scalar().unwrap(),
+            0.0,
+            epsilon = 1e-12
+        );
+        for (rows, cols) in [(0, 0), (0, 1), (1, 0), (1, 2), (2, 1), (2, 2)] {
+            assert!(
+                Array::Dense(DMatrix::zeros(rows, cols))
+                    .as_scalar()
+                    .is_none()
+            );
+            assert!(
+                Array::Sparse(CscMatrix::zeros(rows, cols))
+                    .as_scalar()
+                    .is_none()
+            );
+        }
     }
 
     #[test]
