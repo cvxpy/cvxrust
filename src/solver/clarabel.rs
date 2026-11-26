@@ -69,7 +69,8 @@ impl Default for Settings {
 
 /// Solve the stuffed problem using Clarabel.
 ///
-/// Returns every termination status, including failures; see [`Solution`].
+/// Returns every termination status, including failures. Objective values refer
+/// to the canonical minimization problem; see [`Solution`].
 pub fn solve(problem: &StuffedProblem, settings: &Settings) -> Solution {
     // Convert to Clarabel format
     let p = to_clarabel_csc(&problem.p);

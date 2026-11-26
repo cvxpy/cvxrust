@@ -108,6 +108,40 @@ fn limits_retain_iterates_with_objective_offsets_and_sense() {
 }
 
 #[test]
+fn limits_evaluate_original_nonlinear_objectives() {
+    for (settings, expected_status) in limit_settings() {
+        for sign in [1.0, -1.0] {
+            let x = variable(()).nonneg();
+            let z = vstack(vec![3.0 * &x + constant(1.0), 4.0 * &x - constant(2.0)]);
+            let objective = sign * norm2(&z) + constant(7.0);
+            let builder = if sign > 0.0 {
+                Problem::minimize(objective)
+            } else {
+                Problem::maximize(objective)
+            };
+            let solution = builder
+                .subject_to([x.ge(1.0), x.le(2.0)])
+                .solve_with(settings.clone())
+                .expect("a solver limit should return the current iterate");
+
+            assert_eq!(solution.status, expected_status);
+            let primal = solution.try_value(&x).unwrap();
+            let expected = sign * (3.0 * primal + 1.0).hypot(4.0 * primal - 2.0) + 7.0;
+            let reported = solution.value.unwrap();
+            assert!(
+                (reported - expected).abs() < 1e-10,
+                "expected {expected}, got {reported}"
+            );
+            assert!(solution.constraint_dual(0).unwrap().is_finite());
+            assert!(solution.constraint_dual(1).unwrap().is_finite());
+            assert!(solution.constraint_dual(2).is_none());
+            assert_eq!(solution.iterations, 0);
+            assert!(solution.solve_time.is_finite() && solution.solve_time >= 0.0);
+        }
+    }
+}
+
+#[test]
 fn limit_duals_skip_implicit_bounds_and_auxiliary_constraints() {
     for (settings, expected_status) in limit_settings() {
         let x = variable(()).nonneg();

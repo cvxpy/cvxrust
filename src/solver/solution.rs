@@ -46,11 +46,11 @@ pub enum SolveStatus {
 pub struct Solution {
     /// Solution status.
     pub status: SolveStatus,
-    /// Objective estimate; `None` for solver failures.
-    /// Infeasible/unbounded minimization has value `+inf`/`-inf`; maximization reverses
-    /// these signs, including reduced-accuracy outcomes. At limits, this is the
-    /// canonical objective estimate, which may differ from the original objective
-    /// evaluated at the current iterate.
+    /// Original objective evaluated at the returned iterate by [`crate::Problem`].
+    /// Evaluation can produce `NaN` or infinity. Infeasible/unbounded minimization
+    /// has value `+inf`/`-inf`; maximization reverses these signs.
+    /// The low-level [`solve`](super::clarabel::solve) returns the canonical
+    /// objective estimate, or `None` for solver failures.
     pub value: Option<f64>,
     /// Primal values for optimal (including reduced accuracy) and limit outcomes;
     /// otherwise `None`. At limits, primal and dual iterates need not be feasible
