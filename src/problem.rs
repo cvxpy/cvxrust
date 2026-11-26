@@ -139,6 +139,7 @@ impl Problem {
     /// Returns optimal, infeasible, unbounded, and limit outcomes as `Ok`, including
     /// reduced-accuracy outcomes. Inspect [`Solution::status`] for the termination
     /// reason. DCP violations and solver failures return `Err`.
+    /// The objective must contain exactly one entry.
     ///
     /// Sign declarations on variables referenced by the objective or constraints
     /// are enforced elementwise. Clones with the same variable ID contribute all
@@ -146,6 +147,19 @@ impl Problem {
     /// opposite signs require the variable to be zero. Unused clones have no effect.
     /// Bound tracking is independent for each solve.
     pub fn solve_with(&self, settings: Settings) -> Result<Solution> {
+        if self
+            .objective
+            .expr()
+            .shape()
+            .dims()
+            .iter()
+            .any(|&dim| dim != 1)
+        {
+            return Err(CvxError::InvalidProblem(
+                "Objective must contain exactly one entry".into(),
+            ));
+        }
+
         // Check DCP compliance
         if !self.is_dcp() {
             return Err(CvxError::NotDcp(self.dcp_violation_message()));
