@@ -39,6 +39,15 @@ fn solve(problem: Problem, expected: f64) -> Solution {
     solution
 }
 
+fn assert_infeasible(problem: Problem) {
+    assert!(problem.is_dcp());
+    let solution = problem.solve().expect("infeasibility is a solver outcome");
+    assert_eq!(solution.status, SolveStatus::Infeasible);
+    assert_eq!(solution.value, Some(f64::INFINITY));
+    assert!(solution.primal.is_none());
+    assert!(solution.dual.is_none());
+}
+
 #[test]
 fn singular_diagonal_objectives() {
     for sign in [1.0, -1.0] {
@@ -246,8 +255,7 @@ fn zero_forms_preserve_domains_and_duals() {
         assert!(solution.constraint_dual(3).is_none());
 
         let infeasible = Problem::minimize(q).constraint(x.eq(-1.0)).build();
-        assert!(infeasible.is_dcp());
-        assert!(matches!(infeasible.solve(), Err(CvxError::SolverError(_))));
+        assert_infeasible(infeasible);
         assert!(!Problem::minimize(quad_form(&abs(&x), &p)).build().is_dcp());
     }
 }
@@ -276,8 +284,7 @@ fn zero_forms_in_products_preserve_variable_domains() {
         let infeasible = Problem::minimize(sum(&product))
             .subject_to([y.eq(1.0), matrix.eq(1.0), x.le(-1.0)])
             .build();
-        assert!(infeasible.is_dcp());
-        assert!(matches!(infeasible.solve(), Err(CvxError::SolverError(_))));
+        assert_infeasible(infeasible);
     }
 }
 
@@ -315,8 +322,7 @@ fn constant_products_preserve_shapes_and_domains() {
                 let canonical = canonicalize(&product, false, &mut VariableDomains::default());
                 assert_eq!(canonical.expr.as_linear().shape, product.shape());
                 let infeasible = Problem::minimize(objective).constraint(x.le(-1.0)).build();
-                assert!(infeasible.is_dcp());
-                assert!(matches!(infeasible.solve(), Err(CvxError::SolverError(_))));
+                assert_infeasible(infeasible);
             }
         }
     }
@@ -376,8 +382,7 @@ fn cumulative_constant_multipliers_preserve_values_and_domains() {
         let infeasible = Problem::minimize(objective)
             .subject_to([x.le(-1.0), y.eq(1.0), matrix.eq(1.0)])
             .build();
-        assert!(infeasible.is_dcp());
-        assert!(matches!(infeasible.solve(), Err(CvxError::SolverError(_))));
+        assert_infeasible(infeasible);
     }
 }
 

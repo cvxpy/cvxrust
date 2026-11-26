@@ -129,12 +129,16 @@ impl Problem {
 
     /// Solve the problem with default settings.
     ///
-    /// Variable sign declarations are enforced as described in [`Self::solve_with`].
+    /// See [`Self::solve_with`] for outcome and variable sign handling.
     pub fn solve(&self) -> Result<Solution> {
         self.solve_with(Settings::default())
     }
 
     /// Solve the problem with custom settings.
+    ///
+    /// Returns optimal, infeasible, unbounded, and limit outcomes as `Ok`, including
+    /// reduced-accuracy outcomes. Inspect [`Solution::status`] for the termination
+    /// reason. DCP violations and solver failures return `Err`.
     ///
     /// Sign declarations on variables referenced by the objective or constraints
     /// are enforced elementwise. Clones with the same variable ID contribute all
@@ -207,24 +211,7 @@ impl Problem {
                 .collect(),
         );
 
-        // Adjust for maximization
-        if negate_result {
-            solution.value = solution.value.map(|v| -v);
-        }
-
-        // Check solution status
-        match solution.status {
-            SolveStatus::Optimal => Ok(solution),
-            SolveStatus::Infeasible => Err(CvxError::SolverError("Problem is infeasible".into())),
-            SolveStatus::Unbounded => Err(CvxError::SolverError("Problem is unbounded".into())),
-            SolveStatus::MaxIterations => {
-                Err(CvxError::SolverError("Maximum iterations reached".into()))
-            }
-            SolveStatus::NumericalError => Err(CvxError::NumericalError(
-                "Solver encountered numerical difficulties".into(),
-            )),
-            SolveStatus::Unknown => Err(CvxError::SolverError("Unknown solver status".into())),
-        }
+        finish_solution(solution, negate_result)
     }
 
     /// Get a message describing why the problem is not DCP.
@@ -261,6 +248,37 @@ impl Problem {
     }
 }
 
+/// Restore the objective sense and distinguish outcomes from solver failures.
+fn finish_solution(mut solution: Solution, negate_result: bool) -> Result<Solution> {
+    if negate_result {
+        solution.value = solution.value.map(|v| -v);
+    }
+
+    match solution.status {
+        SolveStatus::Optimal
+        | SolveStatus::OptimalInaccurate
+        | SolveStatus::Infeasible
+        | SolveStatus::InfeasibleInaccurate
+        | SolveStatus::Unbounded
+        | SolveStatus::UnboundedInaccurate
+        | SolveStatus::MaxIterations
+        | SolveStatus::MaxTime => Ok(solution),
+        SolveStatus::NumericalError => Err(CvxError::NumericalError(
+            "Solver encountered numerical difficulties (NumericalError)".into(),
+        )),
+        SolveStatus::InsufficientProgress => Err(CvxError::SolverError(
+            "Solver terminated due to insufficient progress (InsufficientProgress)".into(),
+        )),
+        SolveStatus::CallbackTerminated => Err(CvxError::SolverError(
+            "Solver terminated by a callback (CallbackTerminated)".into(),
+        )),
+        SolveStatus::Unsolved => Err(CvxError::SolverError(
+            "Solver has not run (Unsolved)".into(),
+        )),
+        SolveStatus::Unknown => Err(CvxError::SolverError("Unknown solver status".into())),
+    }
+}
+
 /// Builder for constructing problems.
 #[derive(Debug, Clone)]
 pub struct ProblemBuilder {
@@ -289,12 +307,12 @@ impl ProblemBuilder {
         }
     }
 
-    /// Build and solve the problem with default settings.
+    /// Build and solve with default settings; see [`Problem::solve`].
     pub fn solve(self) -> Result<Solution> {
         self.build().solve()
     }
 
-    /// Build and solve the problem with custom settings.
+    /// Build and solve with custom settings; see [`Problem::solve_with`].
     pub fn solve_with(self, settings: Settings) -> Result<Solution> {
         self.build().solve_with(settings)
     }
@@ -307,6 +325,73 @@ mod tests {
     use crate::constraints::ConstraintExt;
     use crate::expr::{VariableData, constant, variable};
     use crate::solver::SolveStatus;
+
+    fn solution_fixture(status: SolveStatus, value: Option<f64>) -> Solution {
+        Solution {
+            status,
+            value,
+            primal: None,
+            dual: None,
+            constraint_rows: Some(Vec::new()),
+            solve_time: 0.25,
+            iterations: 7,
+        }
+    }
+
+    #[test]
+    fn test_finish_solution_returns_outcomes_with_objective_sense() {
+        for (status, value) in [
+            (SolveStatus::Optimal, 2.0),
+            (SolveStatus::OptimalInaccurate, 2.0),
+            (SolveStatus::Infeasible, f64::INFINITY),
+            (SolveStatus::InfeasibleInaccurate, f64::INFINITY),
+            (SolveStatus::Unbounded, f64::NEG_INFINITY),
+            (SolveStatus::UnboundedInaccurate, f64::NEG_INFINITY),
+            (SolveStatus::MaxIterations, 2.0),
+            (SolveStatus::MaxTime, 2.0),
+        ] {
+            for negate in [false, true] {
+                let result =
+                    finish_solution(solution_fixture(status, Some(value)), negate).unwrap();
+                assert_eq!(result.status, status);
+                let expected = if negate { -value } else { value };
+                if expected.is_infinite() {
+                    assert_eq!(result.value, Some(expected));
+                } else {
+                    assert!((result.value.unwrap() - expected).abs() < 1e-12);
+                }
+                assert_eq!(result.iterations, 7);
+                assert!((result.solve_time - 0.25).abs() < 1e-12);
+                assert_eq!(result.constraint_rows, Some(Vec::new()));
+            }
+        }
+    }
+
+    #[test]
+    fn test_finish_solution_reports_solver_failure_reasons() {
+        for status in [
+            SolveStatus::NumericalError,
+            SolveStatus::InsufficientProgress,
+            SolveStatus::CallbackTerminated,
+            SolveStatus::Unsolved,
+            SolveStatus::Unknown,
+        ] {
+            let error = finish_solution(solution_fixture(status, None), false).unwrap_err();
+            let message = match (status, error) {
+                (SolveStatus::NumericalError, CvxError::NumericalError(message)) => message,
+                (
+                    SolveStatus::InsufficientProgress
+                    | SolveStatus::CallbackTerminated
+                    | SolveStatus::Unsolved
+                    | SolveStatus::Unknown,
+                    CvxError::SolverError(message),
+                ) => message,
+                (_, other) => panic!("wrong error category for {status:?}: {other:?}"),
+            };
+            // The backend termination reason must survive the high-level error.
+            assert!(message.contains(&format!("{status:?}")), "{message}");
+        }
+    }
 
     #[test]
     fn test_problem_builder() {

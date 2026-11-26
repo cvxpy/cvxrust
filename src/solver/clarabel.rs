@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 use clarabel::algebra::CscMatrix as ClarabelCsc;
 use clarabel::solver::{
-    DefaultSettingsBuilder, DefaultSolver, IPSolver, SolverStatus, SupportedConeT,
+    DefaultSettingsBuilder, DefaultSolution, DefaultSolver, IPSolver, SolverStatus, SupportedConeT,
 };
 
 use super::stuffing::{ConeDims, StuffedProblem, VariableMap};
@@ -25,11 +25,17 @@ impl From<SolverStatus> for SolveStatus {
     fn from(status: SolverStatus) -> Self {
         match status {
             SolverStatus::Solved => SolveStatus::Optimal,
+            SolverStatus::AlmostSolved => SolveStatus::OptimalInaccurate,
             SolverStatus::PrimalInfeasible => SolveStatus::Infeasible,
+            SolverStatus::AlmostPrimalInfeasible => SolveStatus::InfeasibleInaccurate,
             SolverStatus::DualInfeasible => SolveStatus::Unbounded,
+            SolverStatus::AlmostDualInfeasible => SolveStatus::UnboundedInaccurate,
             SolverStatus::MaxIterations => SolveStatus::MaxIterations,
-            SolverStatus::MaxTime => SolveStatus::MaxIterations,
-            _ => SolveStatus::Unknown,
+            SolverStatus::MaxTime => SolveStatus::MaxTime,
+            SolverStatus::NumericalError => SolveStatus::NumericalError,
+            SolverStatus::InsufficientProgress => SolveStatus::InsufficientProgress,
+            SolverStatus::CallbackTerminated => SolveStatus::CallbackTerminated,
+            SolverStatus::Unsolved => SolveStatus::Unsolved,
         }
     }
 }
@@ -62,6 +68,8 @@ impl Default for Settings {
 }
 
 /// Solve the stuffed problem using Clarabel.
+///
+/// Returns every termination status, including failures; see [`Solution`].
 pub fn solve(problem: &StuffedProblem, settings: &Settings) -> Solution {
     // Convert to Clarabel format
     let p = to_clarabel_csc(&problem.p);
@@ -83,35 +91,42 @@ pub fn solve(problem: &StuffedProblem, settings: &Settings) -> Solution {
         .expect("Settings to be correct");
     solver.solve();
 
-    // Extract solution
-    let status: SolveStatus = solver.solution.status.into();
-    let solve_time = solver.solution.solve_time;
-    let iterations = solver.info.iterations;
+    extract_solution(problem, &solver.solution)
+}
 
-    if status == SolveStatus::Optimal {
-        let primal = unpack_primal(&solver.solution.x, &problem.var_map);
-        let value = compute_objective(&solver.solution.x, &problem.p, &problem.q)
-            + problem.objective_offset;
+/// Recover values only when the backend result represents a primal/dual iterate.
+fn extract_solution(problem: &StuffedProblem, result: &DefaultSolution<f64>) -> Solution {
+    let status = result.status.into();
+    let (value, primal, dual) = match status {
+        SolveStatus::Optimal
+        | SolveStatus::OptimalInaccurate
+        | SolveStatus::MaxIterations
+        | SolveStatus::MaxTime => (
+            Some(compute_objective(&result.x, &problem.p, &problem.q) + problem.objective_offset),
+            Some(unpack_primal(&result.x, &problem.var_map)),
+            Some(result.z.clone()),
+        ),
+        SolveStatus::Infeasible | SolveStatus::InfeasibleInaccurate => {
+            (Some(f64::INFINITY), None, None)
+        }
+        SolveStatus::Unbounded | SolveStatus::UnboundedInaccurate => {
+            (Some(f64::NEG_INFINITY), None, None)
+        }
+        SolveStatus::NumericalError
+        | SolveStatus::InsufficientProgress
+        | SolveStatus::CallbackTerminated
+        | SolveStatus::Unsolved
+        | SolveStatus::Unknown => (None, None, None),
+    };
 
-        Solution {
-            status,
-            value: Some(value),
-            primal: Some(primal),
-            dual: Some(solver.solution.z.clone()),
-            constraint_rows: None,
-            solve_time,
-            iterations,
-        }
-    } else {
-        Solution {
-            status,
-            value: None,
-            primal: None,
-            dual: None,
-            constraint_rows: None,
-            solve_time,
-            iterations,
-        }
+    Solution {
+        status,
+        value,
+        primal,
+        dual,
+        constraint_rows: None,
+        solve_time: result.solve_time,
+        iterations: result.iterations,
     }
 }
 
@@ -200,6 +215,131 @@ fn compute_objective(x: &[f64], p: &nalgebra_sparse::CscMatrix<f64>, q: &[f64]) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::expr::Shape;
+    use crate::sparse::csc_from_triplets;
+    use approx::assert_abs_diff_eq;
+
+    #[test]
+    fn test_solver_status_conversion() {
+        for (backend, expected) in [
+            (SolverStatus::Solved, SolveStatus::Optimal),
+            (SolverStatus::AlmostSolved, SolveStatus::OptimalInaccurate),
+            (SolverStatus::PrimalInfeasible, SolveStatus::Infeasible),
+            (
+                SolverStatus::AlmostPrimalInfeasible,
+                SolveStatus::InfeasibleInaccurate,
+            ),
+            (SolverStatus::DualInfeasible, SolveStatus::Unbounded),
+            (
+                SolverStatus::AlmostDualInfeasible,
+                SolveStatus::UnboundedInaccurate,
+            ),
+            (SolverStatus::MaxIterations, SolveStatus::MaxIterations),
+            (SolverStatus::MaxTime, SolveStatus::MaxTime),
+            (SolverStatus::NumericalError, SolveStatus::NumericalError),
+            (
+                SolverStatus::InsufficientProgress,
+                SolveStatus::InsufficientProgress,
+            ),
+            (
+                SolverStatus::CallbackTerminated,
+                SolveStatus::CallbackTerminated,
+            ),
+            (SolverStatus::Unsolved, SolveStatus::Unsolved),
+        ] {
+            assert_eq!(SolveStatus::from(backend), expected, "{backend:?}");
+        }
+    }
+
+    fn extraction_fixture() -> (StuffedProblem, DefaultSolution<f64>, ExprId, ExprId) {
+        let scalar = ExprId::new();
+        let matrix = ExprId::new();
+        let problem = StuffedProblem {
+            // Objective: `x_0^2 + x_0 x_1 + x_1^2 + 3 x_0 - x_4 + 7`.
+            p: csc_from_triplets(5, 5, vec![0, 0, 1], vec![0, 1, 1], vec![2.0, 1.0, 2.0]),
+            q: vec![3.0, 0.0, 0.0, 0.0, -1.0],
+            a: nalgebra_sparse::CscMatrix::zeros(2, 5),
+            b: vec![0.0; 2],
+            cone_dims: ConeDims {
+                nonneg: 2,
+                ..ConeDims::default()
+            },
+            constraint_rows: vec![0..1, 1..2],
+            var_map: VariableMap::from_vars(&[
+                (scalar, Shape::scalar()),
+                (matrix, Shape::matrix(2, 2)),
+            ]),
+            objective_offset: 7.0,
+        };
+        let mut result = DefaultSolution::new(5, 2);
+        result.x = vec![2.0, 1.0, 3.0, 2.0, 4.0];
+        result.z = vec![0.5, 1.5];
+        result.solve_time = 0.25;
+        result.iterations = 7;
+        (problem, result, scalar, matrix)
+    }
+
+    #[test]
+    fn test_extract_solution_retains_iterates_and_objective() {
+        let (problem, mut result, scalar, matrix) = extraction_fixture();
+        for status in [
+            SolverStatus::Solved,
+            SolverStatus::AlmostSolved,
+            SolverStatus::MaxIterations,
+            SolverStatus::MaxTime,
+        ] {
+            result.status = status;
+            let solution = extract_solution(&problem, &result);
+            assert_eq!(solution.status, status.into());
+            assert_abs_diff_eq!(solution.value.unwrap(), 16.0, epsilon = 1e-12);
+            assert_abs_diff_eq!(
+                solution.get_value(scalar).unwrap().as_scalar().unwrap(),
+                2.0,
+                epsilon = 1e-12
+            );
+            let Array::Dense(values) = solution.get_value(matrix).unwrap() else {
+                panic!("matrix variable should retain its shape");
+            };
+            assert_eq!(values.shape(), (2, 2));
+            for (index, expected) in [((0, 0), 1.0), ((0, 1), 2.0), ((1, 0), 3.0), ((1, 1), 4.0)] {
+                assert_abs_diff_eq!(values[index], expected, epsilon = 1e-12);
+            }
+            assert!(solution.constraint_rows.is_none());
+            assert!(solution.has_duals());
+            assert_abs_diff_eq!(solution.constraint_dual(0).unwrap(), 0.5, epsilon = 1e-12);
+            assert_abs_diff_eq!(solution.constraint_dual(1).unwrap(), 1.5, epsilon = 1e-12);
+            assert_eq!(solution.iterations, 7);
+            assert_abs_diff_eq!(solution.solve_time, 0.25, epsilon = 1e-12);
+        }
+    }
+
+    #[test]
+    fn test_extract_solution_omits_certificates_and_failed_iterates() {
+        let (problem, mut result, scalar, _) = extraction_fixture();
+        for (status, expected_value) in [
+            (SolverStatus::PrimalInfeasible, Some(f64::INFINITY)),
+            (SolverStatus::AlmostPrimalInfeasible, Some(f64::INFINITY)),
+            (SolverStatus::DualInfeasible, Some(f64::NEG_INFINITY)),
+            (SolverStatus::AlmostDualInfeasible, Some(f64::NEG_INFINITY)),
+            (SolverStatus::NumericalError, None),
+            (SolverStatus::InsufficientProgress, None),
+            (SolverStatus::CallbackTerminated, None),
+            (SolverStatus::Unsolved, None),
+        ] {
+            result.status = status;
+            let solution = extract_solution(&problem, &result);
+            assert_eq!(solution.status, status.into());
+            assert_eq!(solution.value, expected_value, "{status:?}");
+            assert!(solution.primal.is_none());
+            assert!(solution.get_value(scalar).is_none());
+            assert!(solution.dual.is_none());
+            assert!(!solution.has_duals());
+            assert!(solution.constraint_dual(0).is_none());
+            assert!(solution.constraint_rows.is_none());
+            assert_eq!(solution.iterations, 7);
+            assert_abs_diff_eq!(solution.solve_time, 0.25, epsilon = 1e-12);
+        }
+    }
 
     #[test]
     fn test_low_level_solve_preserves_raw_dual_indices() {
