@@ -211,3 +211,40 @@ fn direct_extrema_objectives_broadcast_rows_and_columns() {
         assert_abs_diff_eq!(solution.value.unwrap(), expected, epsilon = 1e-7);
     }
 }
+
+#[test]
+fn vector_matrix_objectives_preserve_vector_results() {
+    let x = variable(1);
+    let y = variable((1, 2));
+    let row = constant_matrix(vec![2.0, 3.0], 1, 2);
+    let sparse_row = constant_sparse(csc_from_triplets(
+        1,
+        2,
+        vec![0, 0],
+        vec![0, 1],
+        vec![2.0, 3.0],
+    ));
+    for (product, constraint) in [
+        (matmul(&x, &row), x.eq(2.0)),
+        (matmul(&x, &sparse_row), x.eq(2.0)),
+        (matmul(&reshape(&constant(2.0), 1), &y), y.eq(row)),
+    ] {
+        assert_eq!(product.shape(), Shape::vector(2));
+        let objective = sum_axis(&product, 0);
+        assert_eq!(objective.shape(), Shape::scalar());
+        for builder in [
+            Problem::minimize(objective.clone()),
+            Problem::maximize(objective.clone()),
+        ] {
+            let solution = builder.constraint(constraint.clone()).solve().unwrap();
+            assert_eq!(solution.status, SolveStatus::Optimal);
+            assert_abs_diff_eq!(solution.value.unwrap(), 10.0, epsilon = 1e-7);
+            let Array::Dense(values) = product.eval(&solution).unwrap() else {
+                panic!("vector product must use column storage");
+            };
+            assert_eq!(values.shape(), (2, 1));
+            assert_abs_diff_eq!(values[(0, 0)], 4.0, epsilon = 1e-7);
+            assert_abs_diff_eq!(values[(1, 0)], 6.0, epsilon = 1e-7);
+        }
+    }
+}

@@ -188,6 +188,132 @@ fn test_eval_constant() {
 }
 
 #[test]
+fn test_eval_matmul_preserves_declared_shapes() {
+    for (a_shape, a_values, b_shape, b_values, expected_values) in [
+        (
+            Shape::vector(3),
+            vec![1.0, 2.0, 3.0],
+            Shape::vector(3),
+            vec![4.0, 5.0, 6.0],
+            vec![32.0],
+        ),
+        (
+            Shape::vector(2),
+            vec![2.0, 3.0],
+            Shape::matrix(2, 3),
+            vec![1.0, 4.0, 2.0, 5.0, 3.0, 6.0],
+            vec![14.0, 19.0, 24.0],
+        ),
+        (
+            Shape::vector(1),
+            vec![2.0],
+            Shape::matrix(1, 2),
+            vec![2.0, 3.0],
+            vec![4.0, 6.0],
+        ),
+        (
+            Shape::matrix(2, 3),
+            vec![1.0, 4.0, 2.0, 5.0, 3.0, 6.0],
+            Shape::vector(3),
+            vec![1.0, 2.0, 3.0],
+            vec![14.0, 32.0],
+        ),
+        (
+            Shape::matrix(2, 3),
+            vec![1.0, 4.0, 2.0, 5.0, 3.0, 6.0],
+            Shape::matrix(3, 2),
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            vec![14.0, 32.0, 32.0, 77.0],
+        ),
+        (
+            Shape::matrix(2, 1),
+            vec![2.0, 3.0],
+            Shape::scalar(),
+            vec![4.0],
+            vec![8.0, 12.0],
+        ),
+    ] {
+        let a = variable(a_shape.clone());
+        let b = variable(b_shape.clone());
+        let expression = matmul(&a, &b);
+        let shape = expression.shape();
+        let expected = DMatrix::from_vec(shape.rows(), shape.cols(), expected_values);
+        for sparse in [false, true] {
+            let values = |shape: &Shape, values: Vec<f64>| {
+                let matrix = DMatrix::from_vec(shape.rows(), shape.cols(), values);
+                if sparse {
+                    Array::Sparse(crate::sparse::dense_to_csc(&matrix))
+                } else if shape.is_scalar() {
+                    Array::Scalar(matrix[(0, 0)])
+                } else {
+                    Array::Dense(matrix)
+                }
+            };
+            let ctx = TestCtx(HashMap::from([
+                (a.variable_id().unwrap(), values(&a_shape, a_values.clone())),
+                (b.variable_id().unwrap(), values(&b_shape, b_values.clone())),
+            ]));
+            let actual = expression.eval(&ctx).unwrap();
+            if shape.is_scalar() {
+                assert!(matches!(actual, Array::Scalar(_)));
+            }
+            let actual = affine::arr_to_dense(actual);
+            assert_eq!(actual.shape(), expected.shape());
+            assert!((actual - &expected).norm() < 1e-12);
+            if shape.is_vector() {
+                let reduced = sum_axis(&expression, 0).eval(&ctx).unwrap();
+                assert!((reduced.as_scalar().unwrap() - expected.sum()).abs() < 1e-12);
+            }
+        }
+    }
+}
+
+#[test]
+fn test_eval_matmul_rejects_incompatible_shapes() {
+    for (a_shape, b_shape) in [
+        (Shape::vector(2), Shape::vector(3)),
+        (Shape::matrix(2, 2), Shape::vector(3)),
+        (Shape::scalar(), Shape::matrix(1, 1)),
+    ] {
+        let a = variable(a_shape.clone());
+        let b = variable(b_shape.clone());
+        let ctx = TestCtx(HashMap::from([
+            (
+                a.variable_id().unwrap(),
+                Array::Dense(DMatrix::zeros(a_shape.rows(), a_shape.cols())),
+            ),
+            (
+                b.variable_id().unwrap(),
+                Array::Dense(DMatrix::zeros(b_shape.rows(), b_shape.cols())),
+            ),
+        ]));
+        assert!(matches!(
+            matmul(&a, &b).eval(&ctx),
+            Err(CvxError::InvalidProblem(_))
+        ));
+    }
+
+    let a = variable(2);
+    let b = variable(2);
+    for (rows_a, cols_a, rows_b, cols_b) in [(1, 2, 2, 1), (2, 1, 1, 2)] {
+        let ctx = TestCtx(HashMap::from([
+            (
+                a.variable_id().unwrap(),
+                Array::Dense(DMatrix::zeros(rows_a, cols_a)),
+            ),
+            (
+                b.variable_id().unwrap(),
+                Array::Dense(DMatrix::zeros(rows_b, cols_b)),
+            ),
+        ]));
+        assert!(matches!(
+            matmul(&a, &b).eval(&ctx),
+            Err(CvxError::InvalidProblem(_))
+        ));
+    }
+}
+
+#[test]
 fn test_eval_diag_preserves_input_shape() {
     for (shape, entries, expected) in [
         (Shape::scalar(), vec![2.0], DMatrix::from_element(1, 1, 2.0)),

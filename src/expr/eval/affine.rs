@@ -82,15 +82,44 @@ pub(super) fn eval_mul(
     }
 }
 
-pub(super) fn eval_matmul(a: Array, b: Array) -> crate::Result<Array> {
-    let am = arr_to_dense(a);
+pub(super) fn eval_matmul(
+    a: Array,
+    a_shape: &Shape,
+    b: Array,
+    b_shape: &Shape,
+) -> crate::Result<Array> {
+    let shape = a_shape.matmul(b_shape).ok_or_else(|| {
+        crate::CvxError::InvalidProblem(format!(
+            "Cannot matrix-multiply shapes {a_shape} and {b_shape}"
+        ))
+    })?;
+    for (array, source) in [(&a, a_shape), (&b, b_shape)] {
+        let actual = array.shape();
+        if actual.rows() != source.rows() || actual.cols() != source.cols() {
+            return Err(crate::CvxError::InvalidProblem(format!(
+                "Evaluated shape {actual} does not match expression shape {source}"
+            )));
+        }
+    }
+    let mut am = arr_to_dense(a);
     let bm = arr_to_dense(b);
+    if a_shape.is_vector() {
+        am = am.transpose();
+    }
     if am.ncols() != bm.nrows() {
         return Err(crate::CvxError::InvalidProblem(
             "Shape mismatch in matrix multiply".into(),
         ));
     }
-    Ok(Array::Dense(am * bm))
+    let result = am * bm;
+    if shape.is_scalar() {
+        Ok(Array::Scalar(result[(0, 0)]))
+    } else {
+        Ok(Array::Dense(result.reshape_generic(
+            nalgebra::Dyn(shape.rows()),
+            nalgebra::Dyn(shape.cols()),
+        )))
+    }
 }
 
 pub(super) fn eval_sum(a: Array, axis: Option<usize>) -> crate::Result<Array> {

@@ -137,7 +137,7 @@ impl Expr {
             Expr::MatMul(a, b) => {
                 let av = a.eval(ctx)?;
                 let bv = b.eval(ctx)?;
-                eval_matmul(av, bv)
+                eval_matmul(av, &a.shape(), bv, &b.shape())
             }
             Expr::Norm1(a) => Ok(Array::Scalar(eval_norm1(&a.eval(ctx)?))),
             Expr::Norm2(a) => Ok(Array::Scalar(eval_norm2(&a.eval(ctx)?))),
