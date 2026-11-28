@@ -9,6 +9,7 @@ use crate::expr::{constant, variable};
 use crate::prelude::*;
 use nalgebra::DMatrix;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Simple test context using a HashMap of variable values.
 struct TestCtx(HashMap<ExprId, Array>);
@@ -34,6 +35,143 @@ fn make_var_vec(vals: Vec<f64>) -> (Expr, TestCtx) {
     let mut map = HashMap::new();
     map.insert(id, Array::from_vec(vals));
     (x, TestCtx(map))
+}
+
+fn direct_elementwise(a: &Expr, b: &Expr) -> [Expr; 4] {
+    let a = Arc::new(a.clone());
+    let b = Arc::new(b.clone());
+    [
+        Expr::Add(a.clone(), b.clone()),
+        Expr::Mul(a.clone(), b.clone()),
+        Expr::Maximum(vec![a.clone(), b.clone()]),
+        Expr::Minimum(vec![a, b]),
+    ]
+}
+
+fn assert_direct_elementwise_values(
+    a: &Expr,
+    b: &Expr,
+    expanded_a: &DMatrix<f64>,
+    expanded_b: &DMatrix<f64>,
+    ctx: &TestCtx,
+) {
+    let expected = [
+        expanded_a + expanded_b,
+        expanded_a.component_mul(expanded_b),
+        expanded_a.zip_map(expanded_b, f64::max),
+        expanded_a.zip_map(expanded_b, f64::min),
+    ];
+    for (expression, expected) in direct_elementwise(a, b).into_iter().zip(expected) {
+        let actual = affine::arr_to_dense(expression.eval(ctx).unwrap());
+        assert_eq!(actual.shape(), expected.shape());
+        assert!((actual - expected).norm() < 1e-12);
+    }
+}
+
+#[test]
+fn test_eval_direct_elementwise_scalar_like_broadcasts() {
+    let (x, ctx) = make_var_vec(vec![1.0, 3.0]);
+    let expected_x = DMatrix::from_vec(2, 1, vec![1.0, 3.0]);
+    for value in [0.0, 2.0] {
+        let matrix = DMatrix::from_element(1, 1, value);
+        let expanded = DMatrix::from_element(2, 1, value);
+        for scalar in [
+            constant(value),
+            reshape(&constant(value), 1),
+            constant_dmatrix(matrix.clone()),
+            constant_sparse(crate::sparse::dense_to_csc(&matrix)),
+        ] {
+            assert_direct_elementwise_values(&x, &scalar, &expected_x, &expanded, &ctx);
+            assert_direct_elementwise_values(&scalar, &x, &expanded, &expected_x, &ctx);
+        }
+    }
+}
+
+#[test]
+fn test_eval_direct_elementwise_matrix_broadcasts() {
+    let ctx = TestCtx(HashMap::new());
+    let row = constant_matrix(vec![1.0, 3.0, 5.0], 1, 3);
+    let col = constant_matrix(vec![2.0, 4.0], 2, 1);
+    let matrix = constant_matrix(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 2, 3);
+    let row_expanded = DMatrix::from_vec(2, 3, vec![1.0, 1.0, 3.0, 3.0, 5.0, 5.0]);
+    let col_expanded = DMatrix::from_vec(2, 3, vec![2.0, 4.0, 2.0, 4.0, 2.0, 4.0]);
+    let matrix_values = DMatrix::from_vec(2, 3, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+    for (a, b, expanded_a, expanded_b) in [
+        (&row, &col, &row_expanded, &col_expanded),
+        (&row, &matrix, &row_expanded, &matrix_values),
+        (&col, &matrix, &col_expanded, &matrix_values),
+    ] {
+        assert_direct_elementwise_values(a, b, expanded_a, expanded_b, &ctx);
+        assert_direct_elementwise_values(b, a, expanded_b, expanded_a, &ctx);
+    }
+}
+
+#[test]
+fn test_eval_direct_extrema_broadcast_multiple_and_nested_arguments() {
+    let ctx = TestCtx(HashMap::new());
+    let scalar = Arc::new(constant(3.0));
+    let row = Arc::new(constant_matrix(vec![1.0, 3.0, 5.0], 1, 3));
+    let col = Arc::new(constant_matrix(vec![2.0, 4.0], 2, 1));
+    let args = vec![scalar.clone(), row.clone(), col.clone()];
+    for (direct, nested, expected) in [
+        (
+            Expr::Maximum(args.clone()),
+            Expr::Maximum(vec![
+                Arc::new(Expr::Maximum(vec![scalar.clone(), row.clone()])),
+                col.clone(),
+            ]),
+            vec![3.0, 4.0, 3.0, 4.0, 5.0, 5.0],
+        ),
+        (
+            Expr::Minimum(args),
+            Expr::Minimum(vec![Arc::new(Expr::Minimum(vec![scalar, row])), col]),
+            vec![1.0, 1.0, 2.0, 3.0, 2.0, 3.0],
+        ),
+    ] {
+        let expected = DMatrix::from_vec(2, 3, expected);
+        for expression in [direct, nested] {
+            let actual = affine::arr_to_dense(expression.eval(&ctx).unwrap());
+            assert_eq!(actual.shape(), expected.shape());
+            assert!((actual - &expected).norm() < 1e-12);
+        }
+    }
+}
+
+#[test]
+fn test_eval_direct_elementwise_preserves_vector_shape_rules() {
+    let (vector, ctx) = make_var_vec(vec![1.0, 3.0]);
+    let column = constant_matrix(vec![2.0, 4.0], 2, 1);
+    let vector_values = DMatrix::from_vec(2, 1, vec![1.0, 3.0]);
+    let column_values = DMatrix::from_vec(2, 1, vec![2.0, 4.0]);
+    assert_direct_elementwise_values(&vector, &column, &vector_values, &column_values, &ctx);
+
+    for other in [
+        constant_matrix(vec![2.0, 4.0], 1, 2),
+        constant_matrix(vec![2.0; 6], 2, 3),
+        constant_vec(vec![1.0, 2.0, 3.0]),
+    ] {
+        for expression in direct_elementwise(&vector, &other) {
+            assert!(matches!(
+                expression.eval(&ctx),
+                Err(CvxError::InvalidProblem(_))
+            ));
+        }
+    }
+}
+
+#[test]
+fn test_eval_direct_elementwise_rejects_mismatched_context_shape() {
+    let x = variable(2);
+    let ctx = TestCtx(HashMap::from([(
+        x.variable_id().unwrap(),
+        Array::from_vec(vec![1.0, 2.0, 3.0]),
+    )]));
+    for expression in direct_elementwise(&x, &constant(2.0)) {
+        assert!(matches!(
+            expression.eval(&ctx),
+            Err(CvxError::InvalidProblem(_))
+        ));
+    }
 }
 
 #[test]

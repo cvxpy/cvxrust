@@ -8,6 +8,8 @@ SPDX-License-Identifier: Apache-2.0
 use nalgebra::DMatrix;
 
 use super::Array;
+use super::broadcast::broadcast_pair;
+use crate::expr::Shape;
 
 /// Convert Array to DMatrix (always 2D column-major).
 pub(super) fn arr_to_dense(a: Array) -> DMatrix<f64> {
@@ -24,7 +26,13 @@ pub(super) fn arr_to_dense(a: Array) -> DMatrix<f64> {
     }
 }
 
-pub(super) fn eval_add(a: Array, b: Array) -> crate::Result<Array> {
+pub(super) fn eval_add(
+    a: Array,
+    a_shape: &Shape,
+    b: Array,
+    b_shape: &Shape,
+) -> crate::Result<Array> {
+    let (a, b) = broadcast_pair(a, a_shape, b, b_shape)?;
     match (a, b) {
         (Array::Scalar(x), Array::Scalar(y)) => Ok(Array::Scalar(x + y)),
         (Array::Scalar(s), b) => Ok(Array::Dense(arr_to_dense(b).map(|x| x + s))),
@@ -50,7 +58,13 @@ pub(super) fn eval_neg(a: Array) -> Array {
     }
 }
 
-pub(super) fn eval_mul(a: Array, b: Array) -> crate::Result<Array> {
+pub(super) fn eval_mul(
+    a: Array,
+    a_shape: &Shape,
+    b: Array,
+    b_shape: &Shape,
+) -> crate::Result<Array> {
+    let (a, b) = broadcast_pair(a, a_shape, b, b_shape)?;
     match (a, b) {
         (Array::Scalar(x), Array::Scalar(y)) => Ok(Array::Scalar(x * y)),
         (Array::Scalar(s), b) => Ok(Array::Dense(arr_to_dense(b) * s)),

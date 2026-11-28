@@ -7,6 +7,8 @@ SPDX-License-Identifier: Apache-2.0
 
 use super::Array;
 use super::affine::arr_to_dense;
+use super::broadcast::broadcast_arrays;
+use crate::expr::Shape;
 
 pub(super) fn eval_norm1(a: &Array) -> f64 {
     match a {
@@ -40,13 +42,13 @@ pub(super) fn eval_elementwise(a: Array, f: impl Fn(f64) -> f64) -> Array {
     }
 }
 
-pub(super) fn eval_maximum(arrays: Vec<Array>) -> crate::Result<Array> {
+pub(super) fn eval_maximum(arrays: Vec<(Array, Shape)>) -> crate::Result<Array> {
     if arrays.is_empty() {
         return Err(crate::CvxError::InvalidProblem(
             "maximum of empty list".into(),
         ));
     }
-    let mut iter = arrays.into_iter();
+    let mut iter = broadcast_arrays(arrays)?.into_iter();
     let first = arr_to_dense(iter.next().unwrap());
     let result = iter.try_fold(first, |acc, a| {
         let m = arr_to_dense(a);
@@ -60,13 +62,13 @@ pub(super) fn eval_maximum(arrays: Vec<Array>) -> crate::Result<Array> {
     Ok(Array::Dense(result))
 }
 
-pub(super) fn eval_minimum(arrays: Vec<Array>) -> crate::Result<Array> {
+pub(super) fn eval_minimum(arrays: Vec<(Array, Shape)>) -> crate::Result<Array> {
     if arrays.is_empty() {
         return Err(crate::CvxError::InvalidProblem(
             "minimum of empty list".into(),
         ));
     }
-    let mut iter = arrays.into_iter();
+    let mut iter = broadcast_arrays(arrays)?.into_iter();
     let first = arr_to_dense(iter.next().unwrap());
     let result = iter.try_fold(first, |acc, a| {
         let m = arr_to_dense(a);

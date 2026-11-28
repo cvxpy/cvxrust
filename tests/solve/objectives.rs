@@ -7,6 +7,7 @@ use approx::assert_abs_diff_eq;
 use cvxrust::prelude::*;
 use cvxrust::sparse::csc_from_triplets;
 use nalgebra_sparse::CscMatrix;
+use std::sync::Arc;
 
 #[test]
 fn objectives_require_exactly_one_entry() {
@@ -124,5 +125,89 @@ fn sparse_scalar_objectives_compose() {
                 epsilon = 1e-7
             );
         }
+    }
+}
+
+#[test]
+fn direct_arithmetic_objectives_broadcast_scalar_constants() {
+    let x = variable(2);
+    for scalar in [
+        constant(2.0),
+        constant_matrix(vec![2.0], 1, 1),
+        constant_sparse(csc_from_triplets(1, 1, vec![0], vec![0], vec![2.0])),
+    ] {
+        for (a, b) in [(x.clone(), scalar.clone()), (scalar, x.clone())] {
+            for (expr, expected) in [
+                (Expr::Add(Arc::new(a.clone()), Arc::new(b.clone())), 6.0),
+                (Expr::Mul(Arc::new(a.clone()), Arc::new(b.clone())), 4.0),
+            ] {
+                for problem in [
+                    Problem::minimize(sum(&expr)).constraint(x.eq(1.0)).build(),
+                    Problem::maximize(sum(&expr)).constraint(x.eq(1.0)).build(),
+                ] {
+                    let solution = problem.solve().unwrap();
+                    assert_eq!(solution.status, SolveStatus::Optimal);
+                    assert_abs_diff_eq!(solution.value.unwrap(), expected, epsilon = 1e-7);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn direct_extrema_objectives_broadcast_in_both_operand_orders() {
+    let x = variable(2);
+    for scalar in [
+        constant(1.0),
+        constant_matrix(vec![1.0], 1, 1),
+        constant_sparse(csc_from_triplets(1, 1, vec![0], vec![0], vec![1.0])),
+    ] {
+        for args in [
+            vec![Arc::new(x.clone()), Arc::new(scalar.clone())],
+            vec![Arc::new(scalar), Arc::new(x.clone())],
+        ] {
+            for (expr, minimize, expected) in [
+                (Expr::Maximum(args.clone()), true, 4.0),
+                (Expr::Minimum(args), false, -1.0),
+            ] {
+                assert_eq!(expr.shape(), Shape::vector(2));
+                let builder = if minimize {
+                    Problem::minimize(sum(&expr))
+                } else {
+                    Problem::maximize(sum(&expr))
+                };
+                let solution = builder
+                    .constraint(x.eq(constant_vec(vec![-2.0, 3.0])))
+                    .solve()
+                    .unwrap();
+                assert_eq!(solution.status, SolveStatus::Optimal);
+                assert_abs_diff_eq!(solution.value.unwrap(), expected, epsilon = 1e-7);
+                assert!(matches!(
+                    Problem::minimize(expr).solve(),
+                    Err(CvxError::InvalidProblem(_))
+                ));
+            }
+        }
+    }
+}
+
+#[test]
+fn direct_extrema_objectives_broadcast_rows_and_columns() {
+    let x = variable((2, 2));
+    let args = vec![
+        Arc::new(x.clone()),
+        Arc::new(constant_matrix(vec![1.0, 2.0], 1, 2)),
+        Arc::new(constant_matrix(vec![-1.0, 2.0], 2, 1)),
+    ];
+    for (builder, expected) in [
+        (Problem::minimize(sum(&Expr::Maximum(args.clone()))), 10.0),
+        (Problem::maximize(sum(&Expr::Minimum(args))), -7.0),
+    ] {
+        let solution = builder
+            .constraint(x.eq(constant_matrix(vec![-2.0, 4.0, 3.0, -5.0], 2, 2)))
+            .solve()
+            .unwrap();
+        assert_eq!(solution.status, SolveStatus::Optimal);
+        assert_abs_diff_eq!(solution.value.unwrap(), expected, epsilon = 1e-7);
     }
 }

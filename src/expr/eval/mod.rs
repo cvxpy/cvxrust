@@ -30,6 +30,7 @@ SPDX-License-Identifier: Apache-2.0
 use super::expression::{Array, Expr, ExprId};
 
 mod affine;
+mod broadcast;
 mod nonlinear;
 mod structural;
 
@@ -111,13 +112,13 @@ impl Expr {
             Expr::Add(a, b) => {
                 let av = a.eval(ctx)?;
                 let bv = b.eval(ctx)?;
-                eval_add(av, bv)
+                eval_add(av, &a.shape(), bv, &b.shape())
             }
             Expr::Neg(a) => Ok(eval_neg(a.eval(ctx)?)),
             Expr::Mul(a, b) => {
                 let av = a.eval(ctx)?;
                 let bv = b.eval(ctx)?;
-                eval_mul(av, bv)
+                eval_mul(av, &a.shape(), bv, &b.shape())
             }
             Expr::Promote(a, shape) => eval_promote(a.eval(ctx)?, shape),
             Expr::Sum(a, axis) => eval_sum(a.eval(ctx)?, *axis),
@@ -145,11 +146,17 @@ impl Expr {
             Expr::Pos(a) => Ok(eval_elementwise(a.eval(ctx)?, |x| x.max(0.0))),
             Expr::NegPart(a) => Ok(eval_elementwise(a.eval(ctx)?, |x| (-x).max(0.0))),
             Expr::Maximum(exprs) => {
-                let arrs: crate::Result<Vec<_>> = exprs.iter().map(|e| e.eval(ctx)).collect();
+                let arrs: crate::Result<Vec<_>> = exprs
+                    .iter()
+                    .map(|e| e.eval(ctx).map(|array| (array, e.shape())))
+                    .collect();
                 eval_maximum(arrs?)
             }
             Expr::Minimum(exprs) => {
-                let arrs: crate::Result<Vec<_>> = exprs.iter().map(|e| e.eval(ctx)).collect();
+                let arrs: crate::Result<Vec<_>> = exprs
+                    .iter()
+                    .map(|e| e.eval(ctx).map(|array| (array, e.shape())))
+                    .collect();
                 eval_minimum(arrs?)
             }
             Expr::QuadForm(x, p) => {
