@@ -31,10 +31,11 @@ fn solve_sign_attribute(problem: &Problem, expected: f64) -> Solution {
 
 fn assert_sign_attribute_infeasible(problem: Problem) {
     assert!(problem.is_dcp());
-    match problem.solve() {
-        Err(CvxError::SolverError(message)) if message.contains("infeasible") => {}
-        other => panic!("expected infeasible sign constraints, got {other:?}"),
-    }
+    let solution = problem.solve().expect("infeasibility is a solver outcome");
+    assert_eq!(solution.status, SolveStatus::Infeasible);
+    assert_eq!(solution.value, Some(f64::INFINITY));
+    assert!(solution.primal.is_none());
+    assert!(solution.dual.is_none());
 }
 
 #[test]

@@ -4,7 +4,7 @@ SPDX-License-Identifier: Apache-2.0
 */
 
 use approx::assert_abs_diff_eq;
-use cvxrust::canon::{VariableDomains, canonicalize};
+use cvxrust::canon::{ConeConstraint, LinExpr, VariableDomains, canonicalize};
 use cvxrust::dcp::PsdStatus;
 use cvxrust::prelude::*;
 use cvxrust::sparse::dense_to_csc;
@@ -37,6 +37,15 @@ fn solve(problem: Problem, expected: f64) -> Solution {
         epsilon = 1e-5
     );
     solution
+}
+
+fn assert_infeasible(problem: Problem) {
+    assert!(problem.is_dcp());
+    let solution = problem.solve().expect("infeasibility is a solver outcome");
+    assert_eq!(solution.status, SolveStatus::Infeasible);
+    assert_eq!(solution.value, Some(f64::INFINITY));
+    assert!(solution.primal.is_none());
+    assert!(solution.dual.is_none());
 }
 
 #[test]
@@ -246,8 +255,7 @@ fn zero_forms_preserve_domains_and_duals() {
         assert!(solution.constraint_dual(3).is_none());
 
         let infeasible = Problem::minimize(q).constraint(x.eq(-1.0)).build();
-        assert!(infeasible.is_dcp());
-        assert!(matches!(infeasible.solve(), Err(CvxError::SolverError(_))));
+        assert_infeasible(infeasible);
         assert!(!Problem::minimize(quad_form(&abs(&x), &p)).build().is_dcp());
     }
 }
@@ -276,8 +284,7 @@ fn zero_forms_in_products_preserve_variable_domains() {
         let infeasible = Problem::minimize(sum(&product))
             .subject_to([y.eq(1.0), matrix.eq(1.0), x.le(-1.0)])
             .build();
-        assert!(infeasible.is_dcp());
-        assert!(matches!(infeasible.solve(), Err(CvxError::SolverError(_))));
+        assert_infeasible(infeasible);
     }
 }
 
@@ -315,8 +322,7 @@ fn constant_products_preserve_shapes_and_domains() {
                 let canonical = canonicalize(&product, false, &mut VariableDomains::default());
                 assert_eq!(canonical.expr.as_linear().shape, product.shape());
                 let infeasible = Problem::minimize(objective).constraint(x.le(-1.0)).build();
-                assert!(infeasible.is_dcp());
-                assert!(matches!(infeasible.solve(), Err(CvxError::SolverError(_))));
+                assert_infeasible(infeasible);
             }
         }
     }
@@ -376,8 +382,7 @@ fn cumulative_constant_multipliers_preserve_values_and_domains() {
         let infeasible = Problem::minimize(objective)
             .subject_to([x.le(-1.0), y.eq(1.0), matrix.eq(1.0)])
             .build();
-        assert!(infeasible.is_dcp());
-        assert!(matches!(infeasible.solve(), Err(CvxError::SolverError(_))));
+        assert_infeasible(infeasible);
     }
 }
 
@@ -457,15 +462,34 @@ fn roundoff_projection_agrees_in_native_and_cone_forms() {
             } else {
                 Problem::maximize(min2(&q, &constant(1.0)))
             };
-            for problem in [native.build(), cone.build()] {
-                assert!(problem.is_dcp());
-                let solution = problem.solve().unwrap();
-                let reported = solution.value.unwrap();
-                assert_abs_diff_eq!(reported, 0.0, epsilon = 1e-5);
+            for (problem, expected) in [(native.build(), -sign * 1000.0), (cone.build(), -sign)] {
+                let mut canonical = canonicalize(
+                    &(sign * problem.objective.expr()),
+                    true,
+                    &mut VariableDomains::default(),
+                );
+                // A fixed scalar also permits solving the constant native objective.
+                let fixed = variable(());
+                let id = fixed.variable_id().unwrap();
+                canonical.aux_vars.push((id, fixed.shape()));
+                canonical.constraints.push(ConeConstraint::Zero {
+                    a: LinExpr::variable(id, fixed.shape()),
+                });
+                let stuffed = cvxrust::solver::stuff_problem(
+                    &canonical.expr.into_quadratic(),
+                    &canonical.constraints,
+                    &canonical.aux_vars,
+                );
+                let projected = cvxrust::solver::solve(&stuffed, &Settings::default());
+                assert_eq!(projected.status, SolveStatus::Optimal);
+                let canonical_value = sign * projected.value.unwrap();
+                assert_abs_diff_eq!(canonical_value, 0.0, epsilon = 1e-5);
+
+                let solution = solve(problem, expected);
                 let evaluated = q.value(&solution).as_scalar().unwrap();
                 assert_abs_diff_eq!(evaluated, -sign * 1000.0, epsilon = 1e-8);
                 let error_bound = 16.0 * 2.0 * f64::EPSILON * 100.0 * 1e16;
-                assert!((reported - evaluated).abs() <= error_bound);
+                assert!((canonical_value - evaluated).abs() <= error_bound);
             }
         }
     }

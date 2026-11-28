@@ -221,14 +221,14 @@ impl Expr {
             // Nonlinear - norms return scalars
             Expr::Norm1(_) | Expr::Norm2(_) | Expr::NormInf(_) => Shape::scalar(),
             Expr::Abs(a) | Expr::Pos(a) | Expr::NegPart(a) => a.shape(),
-            Expr::Maximum(exprs) | Expr::Minimum(exprs) => {
-                if exprs.is_empty() {
-                    Shape::scalar()
-                } else {
-                    // Element-wise max/min preserves shape
-                    exprs[0].shape()
-                }
-            }
+            Expr::Maximum(exprs) | Expr::Minimum(exprs) => exprs
+                .iter()
+                .map(|expr| expr.shape())
+                .reduce(|a, b| {
+                    a.broadcast(&b)
+                        .unwrap_or_else(|| panic!("cannot broadcast shapes {} and {}", a, b))
+                })
+                .unwrap_or_else(Shape::scalar),
             Expr::QuadForm(_, _) | Expr::SumSquares(_) | Expr::QuadOverLin(_, _) => Shape::scalar(),
             // Exponential cone atoms (elementwise)
             Expr::Exp(a) | Expr::Log(a) | Expr::Entropy(a) | Expr::Power(a, _) => a.shape(),

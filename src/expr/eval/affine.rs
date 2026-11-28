@@ -8,6 +8,8 @@ SPDX-License-Identifier: Apache-2.0
 use nalgebra::DMatrix;
 
 use super::Array;
+use super::broadcast::broadcast_pair;
+use crate::expr::Shape;
 
 /// Convert Array to DMatrix (always 2D column-major).
 pub(super) fn arr_to_dense(a: Array) -> DMatrix<f64> {
@@ -24,7 +26,13 @@ pub(super) fn arr_to_dense(a: Array) -> DMatrix<f64> {
     }
 }
 
-pub(super) fn eval_add(a: Array, b: Array) -> crate::Result<Array> {
+pub(super) fn eval_add(
+    a: Array,
+    a_shape: &Shape,
+    b: Array,
+    b_shape: &Shape,
+) -> crate::Result<Array> {
+    let (a, b) = broadcast_pair(a, a_shape, b, b_shape)?;
     match (a, b) {
         (Array::Scalar(x), Array::Scalar(y)) => Ok(Array::Scalar(x + y)),
         (Array::Scalar(s), b) => Ok(Array::Dense(arr_to_dense(b).map(|x| x + s))),
@@ -50,7 +58,13 @@ pub(super) fn eval_neg(a: Array) -> Array {
     }
 }
 
-pub(super) fn eval_mul(a: Array, b: Array) -> crate::Result<Array> {
+pub(super) fn eval_mul(
+    a: Array,
+    a_shape: &Shape,
+    b: Array,
+    b_shape: &Shape,
+) -> crate::Result<Array> {
+    let (a, b) = broadcast_pair(a, a_shape, b, b_shape)?;
     match (a, b) {
         (Array::Scalar(x), Array::Scalar(y)) => Ok(Array::Scalar(x * y)),
         (Array::Scalar(s), b) => Ok(Array::Dense(arr_to_dense(b) * s)),
@@ -68,15 +82,44 @@ pub(super) fn eval_mul(a: Array, b: Array) -> crate::Result<Array> {
     }
 }
 
-pub(super) fn eval_matmul(a: Array, b: Array) -> crate::Result<Array> {
-    let am = arr_to_dense(a);
+pub(super) fn eval_matmul(
+    a: Array,
+    a_shape: &Shape,
+    b: Array,
+    b_shape: &Shape,
+) -> crate::Result<Array> {
+    let shape = a_shape.matmul(b_shape).ok_or_else(|| {
+        crate::CvxError::InvalidProblem(format!(
+            "Cannot matrix-multiply shapes {a_shape} and {b_shape}"
+        ))
+    })?;
+    for (array, source) in [(&a, a_shape), (&b, b_shape)] {
+        let actual = array.shape();
+        if actual.rows() != source.rows() || actual.cols() != source.cols() {
+            return Err(crate::CvxError::InvalidProblem(format!(
+                "Evaluated shape {actual} does not match expression shape {source}"
+            )));
+        }
+    }
+    let mut am = arr_to_dense(a);
     let bm = arr_to_dense(b);
+    if a_shape.is_vector() {
+        am = am.transpose();
+    }
     if am.ncols() != bm.nrows() {
         return Err(crate::CvxError::InvalidProblem(
             "Shape mismatch in matrix multiply".into(),
         ));
     }
-    Ok(Array::Dense(am * bm))
+    let result = am * bm;
+    if shape.is_scalar() {
+        Ok(Array::Scalar(result[(0, 0)]))
+    } else {
+        Ok(Array::Dense(result.reshape_generic(
+            nalgebra::Dyn(shape.rows()),
+            nalgebra::Dyn(shape.cols()),
+        )))
+    }
 }
 
 pub(super) fn eval_sum(a: Array, axis: Option<usize>) -> crate::Result<Array> {
@@ -111,8 +154,10 @@ pub(super) fn eval_sum(a: Array, axis: Option<usize>) -> crate::Result<Array> {
 pub(super) fn eval_trace(a: Array) -> Array {
     match a {
         Array::Scalar(v) => Array::Scalar(v),
-        Array::Dense(m) => Array::Scalar(m.trace()),
-        a @ Array::Sparse(_) => Array::Scalar(arr_to_dense(a).trace()),
+        a => {
+            let m = arr_to_dense(a);
+            Array::Scalar((0..m.nrows().min(m.ncols())).map(|i| m[(i, i)]).sum())
+        }
     }
 }
 

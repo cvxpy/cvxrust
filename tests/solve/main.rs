@@ -10,6 +10,8 @@ mod broadcasting;
 mod constants;
 mod domains;
 mod matrix;
+mod objectives;
+mod statuses;
 mod stress;
 
 /// Tolerance for comparing floating point results.

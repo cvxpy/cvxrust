@@ -154,10 +154,10 @@ pub(super) fn eval_transpose(a: Array) -> Array {
     }
 }
 
-pub(super) fn eval_diag(a: Array) -> Array {
+pub(super) fn eval_diag(a: Array, shape: &Shape) -> Array {
     let m = arr_to_dense(a);
     let (rows, cols) = (m.nrows(), m.ncols());
-    if cols == 1 || rows == 1 {
+    if shape.is_vector() {
         // Vector to diagonal matrix
         let n = rows.max(cols);
         let mut result = DMatrix::zeros(n, n);

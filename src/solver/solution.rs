@@ -15,28 +15,49 @@ use crate::expr::{Array, Evaluable, ExprId};
 pub enum SolveStatus {
     /// Optimal solution found.
     Optimal,
+    /// Optimal solution found at reduced accuracy.
+    OptimalInaccurate,
     /// Problem is infeasible.
     Infeasible,
+    /// Problem is infeasible at reduced accuracy.
+    InfeasibleInaccurate,
     /// Problem is unbounded.
     Unbounded,
-    /// Maximum iterations reached.
+    /// Problem is unbounded at reduced accuracy.
+    UnboundedInaccurate,
+    /// Iteration limit reached.
     MaxIterations,
+    /// Time limit reached.
+    MaxTime,
     /// Numerical difficulties.
     NumericalError,
+    /// Solver stopped due to insufficient progress.
+    InsufficientProgress,
+    /// Solver stopped by a callback.
+    CallbackTerminated,
+    /// Solver has not run.
+    Unsolved,
     /// Unknown status.
     Unknown,
 }
 
-/// Solution from the solver.
+/// Optimization outcome, including values when available.
 #[derive(Debug, Clone)]
 pub struct Solution {
     /// Solution status.
     pub status: SolveStatus,
-    /// Optimal value (if solved).
+    /// Original objective evaluated at the returned iterate by [`crate::Problem`].
+    /// Evaluation can produce `NaN` or infinity. Infeasible/unbounded minimization
+    /// has value `+inf`/`-inf`; maximization reverses these signs.
+    /// The low-level [`solve`](super::clarabel::solve) returns the canonical
+    /// objective estimate, or `None` for solver failures.
     pub value: Option<f64>,
-    /// Primal variable values (if solved).
+    /// Primal values for optimal (including reduced accuracy) and limit outcomes;
+    /// otherwise `None`. At limits, primal and dual iterates need not be feasible
+    /// or optimal.
     pub primal: Option<HashMap<ExprId, Array>>,
-    /// Dual variable values in solver cone order (if solved), including implicit bounds.
+    /// Dual values in solver cone order, including implicit bounds, with the same
+    /// availability as [`primal`](Self::primal).
     pub dual: Option<Vec<f64>>,
     /// Solver dual row ranges for explicit constraints in problem order.
     /// Set by `Problem::solve`; `None` for low-level `solve`, which uses raw row indices.
@@ -114,7 +135,7 @@ impl Solution {
     /// 4. Exponential cone constraints (3 duals per cone)
     /// 5. Power cone constraints (3 duals per cone)
     ///
-    /// Returns `None` if the problem was not solved.
+    /// Returns `None` when no dual values are available.
     ///
     /// # Example
     ///
@@ -142,7 +163,7 @@ impl Solution {
     /// For SOC constraints, returns the component corresponding to `t`.
     /// Implicit bounds and auxiliary constraints do not count toward this index.
     /// Solutions from the low-level [`solve`](super::clarabel::solve) function use raw solver row indices.
-    /// Returns `None` if the problem was not solved, the constraint has no components,
+    /// Returns `None` if no dual values are available, the constraint has no components,
     /// or the index is out of bounds.
     ///
     /// # Example

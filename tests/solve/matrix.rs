@@ -8,6 +8,62 @@ SPDX-License-Identifier: Apache-2.0
 use super::TOL;
 use cvxrust::prelude::*;
 
+#[test]
+fn diagonal_objectives_distinguish_vectors_and_matrices() {
+    for (shape, entries, expected, scalar_diagonal) in [
+        (Shape::scalar(), vec![2.0], 2.0, true),
+        (Shape::vector(2), vec![2.0, 3.0], 5.0, false),
+        (Shape::matrix(2, 1), vec![2.0, 3.0], 2.0, true),
+        (Shape::matrix(1, 2), vec![2.0, 3.0], 2.0, true),
+        (Shape::matrix(2, 2), vec![2.0, 3.0, 4.0, 5.0], 7.0, false),
+    ] {
+        let values = constant_matrix(entries, shape.rows(), shape.cols());
+        let x = variable(shape);
+        let diagonal = diag(&x);
+        let mut objectives = vec![sum(&diagonal)];
+        if scalar_diagonal {
+            objectives.push(diagonal);
+        }
+        for objective in objectives {
+            for maximize in [false, true] {
+                let builder = if maximize {
+                    Problem::maximize(objective.clone())
+                } else {
+                    Problem::minimize(objective.clone())
+                };
+                let solution = builder.constraint(x.eq(values.clone())).solve().unwrap();
+                assert_eq!(solution.status, SolveStatus::Optimal);
+                assert!((solution.value.unwrap() - expected).abs() < TOL);
+                assert!(
+                    (objective.eval(&solution).unwrap().as_scalar().unwrap() - expected).abs()
+                        < TOL
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn rectangular_trace_objectives() {
+    for (rows, cols, expected) in [(2, 1, 2.0), (1, 2, 2.0), (2, 3, 4.0), (3, 2, 4.0)] {
+        let x = variable((rows, cols));
+        let objective = trace(&x);
+        for maximize in [false, true] {
+            let builder = if maximize {
+                Problem::maximize(objective.clone())
+            } else {
+                Problem::minimize(objective.clone())
+            };
+            let solution = builder.constraint(x.eq(2.0)).solve().unwrap();
+            assert_eq!(solution.status, SolveStatus::Optimal);
+            assert!((solution.value.unwrap() - expected).abs() < TOL);
+            assert!(
+                (objective.eval(&solution).unwrap().as_scalar().unwrap() - expected).abs() < TOL
+            );
+        }
+    }
+}
+
 /// Sparse constants retain their entries during canonicalization.
 #[test]
 fn test_bug_sparse_constant_becomes_zero() {

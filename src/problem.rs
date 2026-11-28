@@ -129,12 +129,33 @@ impl Problem {
 
     /// Solve the problem with default settings.
     ///
-    /// Variable sign declarations are enforced as described in [`Self::solve_with`].
+    /// See [`Self::solve_with`] for outcome and variable sign handling.
+    ///
+    /// ```
+    /// use cvxrust::prelude::*;
+    /// # fn main() -> cvxrust::Result<()> {
+    /// let x = variable(());
+    /// let solution = Problem::minimize(x.clone()).constraint(x.ge(1.0)).solve()?;
+    /// match solution.status {
+    ///     SolveStatus::Optimal => println!("Objective: {}", solution.value.unwrap()),
+    ///     status => println!("Optimization outcome: {status:?}"),
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn solve(&self) -> Result<Solution> {
         self.solve_with(Settings::default())
     }
 
     /// Solve the problem with custom settings.
+    ///
+    /// Returns optimal, infeasible, unbounded, and limit outcomes as `Ok`, including
+    /// reduced-accuracy outcomes. Inspect [`Solution::status`] for the termination
+    /// reason. The objective must contain exactly one entry. Validation, solver,
+    /// and objective-evaluation errors return `Err`.
+    ///
+    /// With a returned iterate, [`Solution::value`] contains the original objective
+    /// evaluated there, including any `NaN` or infinity produced by evaluation.
     ///
     /// Sign declarations on variables referenced by the objective or constraints
     /// are enforced elementwise. Clones with the same variable ID contribute all
@@ -142,15 +163,28 @@ impl Problem {
     /// opposite signs require the variable to be zero. Unused clones have no effect.
     /// Bound tracking is independent for each solve.
     pub fn solve_with(&self, settings: Settings) -> Result<Solution> {
+        if self
+            .objective
+            .expr()
+            .shape()
+            .dims()
+            .iter()
+            .any(|&dim| dim != 1)
+        {
+            return Err(CvxError::InvalidProblem(
+                "Objective must contain exactly one entry".into(),
+            ));
+        }
+
         // Check DCP compliance
         if !self.is_dcp() {
             return Err(CvxError::NotDcp(self.dcp_violation_message()));
         }
 
         // Convert maximize to minimize
-        let (obj_expr, negate_result) = match &self.objective {
-            Objective::Minimize(e) => (e.clone(), false),
-            Objective::Maximize(e) => (Expr::Neg(Arc::new(e.clone())), true),
+        let obj_expr = match &self.objective {
+            Objective::Minimize(e) => e.clone(),
+            Objective::Maximize(e) => Expr::Neg(Arc::new(e.clone())),
         };
 
         // Canonicalize objective
@@ -207,24 +241,7 @@ impl Problem {
                 .collect(),
         );
 
-        // Adjust for maximization
-        if negate_result {
-            solution.value = solution.value.map(|v| -v);
-        }
-
-        // Check solution status
-        match solution.status {
-            SolveStatus::Optimal => Ok(solution),
-            SolveStatus::Infeasible => Err(CvxError::SolverError("Problem is infeasible".into())),
-            SolveStatus::Unbounded => Err(CvxError::SolverError("Problem is unbounded".into())),
-            SolveStatus::MaxIterations => {
-                Err(CvxError::SolverError("Maximum iterations reached".into()))
-            }
-            SolveStatus::NumericalError => Err(CvxError::NumericalError(
-                "Solver encountered numerical difficulties".into(),
-            )),
-            SolveStatus::Unknown => Err(CvxError::SolverError("Unknown solver status".into())),
-        }
+        finish_solution(solution, &self.objective)
     }
 
     /// Get a message describing why the problem is not DCP.
@@ -261,6 +278,50 @@ impl Problem {
     }
 }
 
+/// Evaluate the original objective and distinguish outcomes from solver failures.
+fn finish_solution(mut solution: Solution, objective: &Objective) -> Result<Solution> {
+    match solution.status {
+        SolveStatus::Optimal
+        | SolveStatus::OptimalInaccurate
+        | SolveStatus::MaxIterations
+        | SolveStatus::MaxTime => {
+            let value = objective
+                .expr()
+                .eval(&solution)?
+                .as_scalar()
+                .ok_or_else(|| {
+                    CvxError::InvalidProblem(
+                        "Objective evaluation must contain exactly one entry".into(),
+                    )
+                })?;
+            solution.value = Some(value);
+            Ok(solution)
+        }
+        SolveStatus::Infeasible
+        | SolveStatus::InfeasibleInaccurate
+        | SolveStatus::Unbounded
+        | SolveStatus::UnboundedInaccurate => {
+            if !objective.is_minimize() {
+                solution.value = solution.value.map(|value| -value);
+            }
+            Ok(solution)
+        }
+        SolveStatus::NumericalError => Err(CvxError::NumericalError(
+            "Solver encountered numerical difficulties (NumericalError)".into(),
+        )),
+        SolveStatus::InsufficientProgress => Err(CvxError::SolverError(
+            "Solver terminated due to insufficient progress (InsufficientProgress)".into(),
+        )),
+        SolveStatus::CallbackTerminated => Err(CvxError::SolverError(
+            "Solver terminated by a callback (CallbackTerminated)".into(),
+        )),
+        SolveStatus::Unsolved => Err(CvxError::SolverError(
+            "Solver has not run (Unsolved)".into(),
+        )),
+        SolveStatus::Unknown => Err(CvxError::SolverError("Unknown solver status".into())),
+    }
+}
+
 /// Builder for constructing problems.
 #[derive(Debug, Clone)]
 pub struct ProblemBuilder {
@@ -289,12 +350,12 @@ impl ProblemBuilder {
         }
     }
 
-    /// Build and solve the problem with default settings.
+    /// Build and solve with default settings; see [`Problem::solve`].
     pub fn solve(self) -> Result<Solution> {
         self.build().solve()
     }
 
-    /// Build and solve the problem with custom settings.
+    /// Build and solve with custom settings; see [`Problem::solve_with`].
     pub fn solve_with(self, settings: Settings) -> Result<Solution> {
         self.build().solve_with(settings)
     }
@@ -303,10 +364,176 @@ impl ProblemBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::atoms::{norm2, sum};
+    use crate::atoms::{log, norm2, sum};
     use crate::constraints::ConstraintExt;
-    use crate::expr::{VariableData, constant, variable};
+    use crate::expr::{Array, VariableData, constant, variable};
     use crate::solver::SolveStatus;
+
+    fn solution_fixture(status: SolveStatus, value: Option<f64>) -> Solution {
+        Solution {
+            status,
+            value,
+            primal: None,
+            dual: None,
+            constraint_rows: Some(Vec::new()),
+            solve_time: 0.25,
+            iterations: 7,
+        }
+    }
+
+    #[test]
+    fn test_finish_solution_preserves_infinite_outcomes() {
+        for (status, value) in [
+            (SolveStatus::Infeasible, f64::INFINITY),
+            (SolveStatus::InfeasibleInaccurate, f64::INFINITY),
+            (SolveStatus::Unbounded, f64::NEG_INFINITY),
+            (SolveStatus::UnboundedInaccurate, f64::NEG_INFINITY),
+        ] {
+            for negate in [false, true] {
+                let objective = if negate {
+                    Objective::Maximize(variable(()))
+                } else {
+                    Objective::Minimize(variable(()))
+                };
+                let result =
+                    finish_solution(solution_fixture(status, Some(value)), &objective).unwrap();
+                assert_eq!(result.status, status);
+                let expected = if negate { -value } else { value };
+                assert_eq!(result.value, Some(expected));
+                assert!(result.primal.is_none());
+                assert!(result.dual.is_none());
+                assert_eq!(result.iterations, 7);
+                assert!((result.solve_time - 0.25).abs() < 1e-12);
+                assert_eq!(result.constraint_rows, Some(Vec::new()));
+            }
+        }
+    }
+
+    #[test]
+    fn test_finish_solution_evaluates_original_objective() {
+        let x = variable(());
+        let id = x.variable_id().unwrap();
+        for status in [
+            SolveStatus::Optimal,
+            SolveStatus::OptimalInaccurate,
+            SolveStatus::MaxIterations,
+            SolveStatus::MaxTime,
+        ] {
+            for (objective, expected) in [
+                (
+                    Objective::Minimize(norm2(&(&x - constant(4.0))) + constant(7.0)),
+                    8.0,
+                ),
+                (
+                    Objective::Maximize(-norm2(&(&x - constant(4.0))) + constant(7.0)),
+                    6.0,
+                ),
+            ] {
+                let mut solution = solution_fixture(status, Some(99.0));
+                solution.primal = Some([(id, Array::Scalar(3.0))].into());
+                solution.dual = Some(vec![0.5, 1.5]);
+                solution.constraint_rows = Some(vec![0..1, 1..2]);
+                let result = finish_solution(solution, &objective).unwrap();
+                assert_eq!(result.status, status);
+                assert!((result.value.unwrap() - expected).abs() < 1e-12);
+                assert!((result.try_value(&x).unwrap() - 3.0).abs() < 1e-12);
+                assert!((result.constraint_dual(0).unwrap() - 0.5).abs() < 1e-12);
+                assert!((result.constraint_dual(1).unwrap() - 1.5).abs() < 1e-12);
+                assert_eq!(result.iterations, 7);
+                assert!((result.solve_time - 0.25).abs() < 1e-12);
+            }
+        }
+    }
+
+    #[test]
+    fn test_finish_solution_preserves_nonfinite_evaluation() {
+        let x = variable(());
+        let id = x.variable_id().unwrap();
+        for status in [
+            SolveStatus::Optimal,
+            SolveStatus::OptimalInaccurate,
+            SolveStatus::MaxIterations,
+            SolveStatus::MaxTime,
+        ] {
+            for primal in [0.0, -1.0] {
+                for (objective, at_zero) in [
+                    (Objective::Minimize(-log(&x)), f64::INFINITY),
+                    (Objective::Maximize(log(&x)), f64::NEG_INFINITY),
+                ] {
+                    let mut solution = solution_fixture(status, Some(99.0));
+                    solution.primal = Some([(id, Array::Scalar(primal))].into());
+                    let result = finish_solution(solution, &objective).unwrap();
+                    assert_eq!(result.status, status);
+                    assert!((result.try_value(&x).unwrap() - primal).abs() < 1e-12);
+                    if primal == 0.0 {
+                        assert_eq!(result.value, Some(at_zero));
+                    } else {
+                        assert!(result.value.unwrap().is_nan());
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_finish_solution_propagates_evaluation_errors() {
+        let x = variable(());
+        let id = x.variable_id().unwrap();
+        let objective = Objective::Minimize(x);
+        for status in [
+            SolveStatus::Optimal,
+            SolveStatus::OptimalInaccurate,
+            SolveStatus::MaxIterations,
+            SolveStatus::MaxTime,
+        ] {
+            let solution = solution_fixture(status, Some(99.0));
+            let expected = objective.expr().eval(&solution).unwrap_err();
+            let actual = finish_solution(solution, &objective).unwrap_err();
+            match (actual, expected) {
+                (CvxError::InvalidProblem(actual), CvxError::InvalidProblem(expected)) => {
+                    assert_eq!(actual, expected);
+                }
+                errors => panic!("unexpected evaluation errors: {errors:?}"),
+            }
+
+            let mut solution = solution_fixture(status, Some(99.0));
+            solution.primal = Some([(id, Array::from_vec(vec![1.0, 2.0]))].into());
+            assert!(matches!(
+                finish_solution(solution, &objective),
+                Err(CvxError::InvalidProblem(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn test_finish_solution_reports_solver_failure_reasons() {
+        for status in [
+            SolveStatus::NumericalError,
+            SolveStatus::InsufficientProgress,
+            SolveStatus::CallbackTerminated,
+            SolveStatus::Unsolved,
+            SolveStatus::Unknown,
+        ] {
+            let error = finish_solution(
+                solution_fixture(status, None),
+                &Objective::Minimize(variable(())),
+            )
+            .unwrap_err();
+            let message = match (status, error) {
+                (SolveStatus::NumericalError, CvxError::NumericalError(message)) => message,
+                (
+                    SolveStatus::InsufficientProgress
+                    | SolveStatus::CallbackTerminated
+                    | SolveStatus::Unsolved
+                    | SolveStatus::Unknown,
+                    CvxError::SolverError(message),
+                ) => message,
+                (_, other) => panic!("wrong error category for {status:?}: {other:?}"),
+            };
+            // The backend termination reason must survive the high-level error.
+            assert!(message.contains(&format!("{status:?}")), "{message}");
+        }
+    }
 
     #[test]
     fn test_problem_builder() {

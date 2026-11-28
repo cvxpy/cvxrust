@@ -9,6 +9,7 @@ use crate::expr::{constant, variable};
 use crate::prelude::*;
 use nalgebra::DMatrix;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Simple test context using a HashMap of variable values.
 struct TestCtx(HashMap<ExprId, Array>);
@@ -36,6 +37,143 @@ fn make_var_vec(vals: Vec<f64>) -> (Expr, TestCtx) {
     (x, TestCtx(map))
 }
 
+fn direct_elementwise(a: &Expr, b: &Expr) -> [Expr; 4] {
+    let a = Arc::new(a.clone());
+    let b = Arc::new(b.clone());
+    [
+        Expr::Add(a.clone(), b.clone()),
+        Expr::Mul(a.clone(), b.clone()),
+        Expr::Maximum(vec![a.clone(), b.clone()]),
+        Expr::Minimum(vec![a, b]),
+    ]
+}
+
+fn assert_direct_elementwise_values(
+    a: &Expr,
+    b: &Expr,
+    expanded_a: &DMatrix<f64>,
+    expanded_b: &DMatrix<f64>,
+    ctx: &TestCtx,
+) {
+    let expected = [
+        expanded_a + expanded_b,
+        expanded_a.component_mul(expanded_b),
+        expanded_a.zip_map(expanded_b, f64::max),
+        expanded_a.zip_map(expanded_b, f64::min),
+    ];
+    for (expression, expected) in direct_elementwise(a, b).into_iter().zip(expected) {
+        let actual = affine::arr_to_dense(expression.eval(ctx).unwrap());
+        assert_eq!(actual.shape(), expected.shape());
+        assert!((actual - expected).norm() < 1e-12);
+    }
+}
+
+#[test]
+fn test_eval_direct_elementwise_scalar_like_broadcasts() {
+    let (x, ctx) = make_var_vec(vec![1.0, 3.0]);
+    let expected_x = DMatrix::from_vec(2, 1, vec![1.0, 3.0]);
+    for value in [0.0, 2.0] {
+        let matrix = DMatrix::from_element(1, 1, value);
+        let expanded = DMatrix::from_element(2, 1, value);
+        for scalar in [
+            constant(value),
+            reshape(&constant(value), 1),
+            constant_dmatrix(matrix.clone()),
+            constant_sparse(crate::sparse::dense_to_csc(&matrix)),
+        ] {
+            assert_direct_elementwise_values(&x, &scalar, &expected_x, &expanded, &ctx);
+            assert_direct_elementwise_values(&scalar, &x, &expanded, &expected_x, &ctx);
+        }
+    }
+}
+
+#[test]
+fn test_eval_direct_elementwise_matrix_broadcasts() {
+    let ctx = TestCtx(HashMap::new());
+    let row = constant_matrix(vec![1.0, 3.0, 5.0], 1, 3);
+    let col = constant_matrix(vec![2.0, 4.0], 2, 1);
+    let matrix = constant_matrix(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 2, 3);
+    let row_expanded = DMatrix::from_vec(2, 3, vec![1.0, 1.0, 3.0, 3.0, 5.0, 5.0]);
+    let col_expanded = DMatrix::from_vec(2, 3, vec![2.0, 4.0, 2.0, 4.0, 2.0, 4.0]);
+    let matrix_values = DMatrix::from_vec(2, 3, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+    for (a, b, expanded_a, expanded_b) in [
+        (&row, &col, &row_expanded, &col_expanded),
+        (&row, &matrix, &row_expanded, &matrix_values),
+        (&col, &matrix, &col_expanded, &matrix_values),
+    ] {
+        assert_direct_elementwise_values(a, b, expanded_a, expanded_b, &ctx);
+        assert_direct_elementwise_values(b, a, expanded_b, expanded_a, &ctx);
+    }
+}
+
+#[test]
+fn test_eval_direct_extrema_broadcast_multiple_and_nested_arguments() {
+    let ctx = TestCtx(HashMap::new());
+    let scalar = Arc::new(constant(3.0));
+    let row = Arc::new(constant_matrix(vec![1.0, 3.0, 5.0], 1, 3));
+    let col = Arc::new(constant_matrix(vec![2.0, 4.0], 2, 1));
+    let args = vec![scalar.clone(), row.clone(), col.clone()];
+    for (direct, nested, expected) in [
+        (
+            Expr::Maximum(args.clone()),
+            Expr::Maximum(vec![
+                Arc::new(Expr::Maximum(vec![scalar.clone(), row.clone()])),
+                col.clone(),
+            ]),
+            vec![3.0, 4.0, 3.0, 4.0, 5.0, 5.0],
+        ),
+        (
+            Expr::Minimum(args),
+            Expr::Minimum(vec![Arc::new(Expr::Minimum(vec![scalar, row])), col]),
+            vec![1.0, 1.0, 2.0, 3.0, 2.0, 3.0],
+        ),
+    ] {
+        let expected = DMatrix::from_vec(2, 3, expected);
+        for expression in [direct, nested] {
+            let actual = affine::arr_to_dense(expression.eval(&ctx).unwrap());
+            assert_eq!(actual.shape(), expected.shape());
+            assert!((actual - &expected).norm() < 1e-12);
+        }
+    }
+}
+
+#[test]
+fn test_eval_direct_elementwise_preserves_vector_shape_rules() {
+    let (vector, ctx) = make_var_vec(vec![1.0, 3.0]);
+    let column = constant_matrix(vec![2.0, 4.0], 2, 1);
+    let vector_values = DMatrix::from_vec(2, 1, vec![1.0, 3.0]);
+    let column_values = DMatrix::from_vec(2, 1, vec![2.0, 4.0]);
+    assert_direct_elementwise_values(&vector, &column, &vector_values, &column_values, &ctx);
+
+    for other in [
+        constant_matrix(vec![2.0, 4.0], 1, 2),
+        constant_matrix(vec![2.0; 6], 2, 3),
+        constant_vec(vec![1.0, 2.0, 3.0]),
+    ] {
+        for expression in direct_elementwise(&vector, &other) {
+            assert!(matches!(
+                expression.eval(&ctx),
+                Err(CvxError::InvalidProblem(_))
+            ));
+        }
+    }
+}
+
+#[test]
+fn test_eval_direct_elementwise_rejects_mismatched_context_shape() {
+    let x = variable(2);
+    let ctx = TestCtx(HashMap::from([(
+        x.variable_id().unwrap(),
+        Array::from_vec(vec![1.0, 2.0, 3.0]),
+    )]));
+    for expression in direct_elementwise(&x, &constant(2.0)) {
+        assert!(matches!(
+            expression.eval(&ctx),
+            Err(CvxError::InvalidProblem(_))
+        ));
+    }
+}
+
 #[test]
 fn test_eval_variable() {
     let (x, ctx) = make_var_scalar(3.0);
@@ -47,6 +185,198 @@ fn test_eval_constant() {
     let c = constant(5.0);
     let (_, ctx) = make_var_scalar(0.0);
     assert_eq!(c.value(&ctx)[(0, 0)], 5.0);
+}
+
+#[test]
+fn test_eval_matmul_preserves_declared_shapes() {
+    for (a_shape, a_values, b_shape, b_values, expected_values) in [
+        (
+            Shape::vector(3),
+            vec![1.0, 2.0, 3.0],
+            Shape::vector(3),
+            vec![4.0, 5.0, 6.0],
+            vec![32.0],
+        ),
+        (
+            Shape::vector(2),
+            vec![2.0, 3.0],
+            Shape::matrix(2, 3),
+            vec![1.0, 4.0, 2.0, 5.0, 3.0, 6.0],
+            vec![14.0, 19.0, 24.0],
+        ),
+        (
+            Shape::vector(1),
+            vec![2.0],
+            Shape::matrix(1, 2),
+            vec![2.0, 3.0],
+            vec![4.0, 6.0],
+        ),
+        (
+            Shape::matrix(2, 3),
+            vec![1.0, 4.0, 2.0, 5.0, 3.0, 6.0],
+            Shape::vector(3),
+            vec![1.0, 2.0, 3.0],
+            vec![14.0, 32.0],
+        ),
+        (
+            Shape::matrix(2, 3),
+            vec![1.0, 4.0, 2.0, 5.0, 3.0, 6.0],
+            Shape::matrix(3, 2),
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            vec![14.0, 32.0, 32.0, 77.0],
+        ),
+        (
+            Shape::matrix(2, 1),
+            vec![2.0, 3.0],
+            Shape::scalar(),
+            vec![4.0],
+            vec![8.0, 12.0],
+        ),
+    ] {
+        let a = variable(a_shape.clone());
+        let b = variable(b_shape.clone());
+        let expression = matmul(&a, &b);
+        let shape = expression.shape();
+        let expected = DMatrix::from_vec(shape.rows(), shape.cols(), expected_values);
+        for sparse in [false, true] {
+            let values = |shape: &Shape, values: Vec<f64>| {
+                let matrix = DMatrix::from_vec(shape.rows(), shape.cols(), values);
+                if sparse {
+                    Array::Sparse(crate::sparse::dense_to_csc(&matrix))
+                } else if shape.is_scalar() {
+                    Array::Scalar(matrix[(0, 0)])
+                } else {
+                    Array::Dense(matrix)
+                }
+            };
+            let ctx = TestCtx(HashMap::from([
+                (a.variable_id().unwrap(), values(&a_shape, a_values.clone())),
+                (b.variable_id().unwrap(), values(&b_shape, b_values.clone())),
+            ]));
+            let actual = expression.eval(&ctx).unwrap();
+            if shape.is_scalar() {
+                assert!(matches!(actual, Array::Scalar(_)));
+            }
+            let actual = affine::arr_to_dense(actual);
+            assert_eq!(actual.shape(), expected.shape());
+            assert!((actual - &expected).norm() < 1e-12);
+            if shape.is_vector() {
+                let reduced = sum_axis(&expression, 0).eval(&ctx).unwrap();
+                assert!((reduced.as_scalar().unwrap() - expected.sum()).abs() < 1e-12);
+            }
+        }
+    }
+}
+
+#[test]
+fn test_eval_matmul_rejects_incompatible_shapes() {
+    for (a_shape, b_shape) in [
+        (Shape::vector(2), Shape::vector(3)),
+        (Shape::matrix(2, 2), Shape::vector(3)),
+        (Shape::scalar(), Shape::matrix(1, 1)),
+    ] {
+        let a = variable(a_shape.clone());
+        let b = variable(b_shape.clone());
+        let ctx = TestCtx(HashMap::from([
+            (
+                a.variable_id().unwrap(),
+                Array::Dense(DMatrix::zeros(a_shape.rows(), a_shape.cols())),
+            ),
+            (
+                b.variable_id().unwrap(),
+                Array::Dense(DMatrix::zeros(b_shape.rows(), b_shape.cols())),
+            ),
+        ]));
+        assert!(matches!(
+            matmul(&a, &b).eval(&ctx),
+            Err(CvxError::InvalidProblem(_))
+        ));
+    }
+
+    let a = variable(2);
+    let b = variable(2);
+    for (rows_a, cols_a, rows_b, cols_b) in [(1, 2, 2, 1), (2, 1, 1, 2)] {
+        let ctx = TestCtx(HashMap::from([
+            (
+                a.variable_id().unwrap(),
+                Array::Dense(DMatrix::zeros(rows_a, cols_a)),
+            ),
+            (
+                b.variable_id().unwrap(),
+                Array::Dense(DMatrix::zeros(rows_b, cols_b)),
+            ),
+        ]));
+        assert!(matches!(
+            matmul(&a, &b).eval(&ctx),
+            Err(CvxError::InvalidProblem(_))
+        ));
+    }
+}
+
+#[test]
+fn test_eval_diag_preserves_input_shape() {
+    for (shape, entries, expected) in [
+        (Shape::scalar(), vec![2.0], DMatrix::from_element(1, 1, 2.0)),
+        (
+            Shape::vector(2),
+            vec![2.0, 3.0],
+            DMatrix::from_diagonal(&nalgebra::DVector::from_vec(vec![2.0, 3.0])),
+        ),
+        (
+            Shape::matrix(2, 1),
+            vec![2.0, 3.0],
+            DMatrix::from_element(1, 1, 2.0),
+        ),
+        (
+            Shape::matrix(1, 2),
+            vec![2.0, 3.0],
+            DMatrix::from_element(1, 1, 2.0),
+        ),
+        (
+            Shape::matrix(2, 2),
+            vec![2.0, 3.0, 4.0, 5.0],
+            DMatrix::from_vec(2, 1, vec![2.0, 5.0]),
+        ),
+    ] {
+        let matrix = DMatrix::from_vec(shape.rows(), shape.cols(), entries);
+        let x = variable(shape.clone());
+        let mut values = vec![
+            Array::Sparse(crate::sparse::dense_to_csc(&matrix)),
+            Array::Dense(matrix),
+        ];
+        if shape.is_scalar() {
+            values.push(Array::Scalar(2.0));
+        }
+        for value in values {
+            let ctx = TestCtx(HashMap::from([(x.variable_id().unwrap(), value)]));
+            let Array::Dense(actual) = diag(&x).eval(&ctx).unwrap() else {
+                panic!("diag should return a dense array");
+            };
+            assert_eq!(actual.shape(), expected.shape());
+            assert!((actual - &expected).norm() < 1e-12);
+        }
+    }
+}
+
+#[test]
+fn test_eval_trace_rectangular_matrices() {
+    let ctx = TestCtx(HashMap::new());
+    for (rows, cols, expected) in [
+        (1, 1, 2.0),
+        (2, 1, 2.0),
+        (1, 2, 2.0),
+        (2, 3, 4.0),
+        (3, 2, 4.0),
+    ] {
+        let matrix = DMatrix::from_element(rows, cols, 2.0);
+        for expression in [
+            constant_sparse(crate::sparse::dense_to_csc(&matrix)),
+            constant_dmatrix(matrix),
+        ] {
+            let actual = trace(&expression).eval(&ctx).unwrap().as_scalar().unwrap();
+            assert!((actual - expected).abs() < 1e-12);
+        }
+    }
 }
 
 #[test]

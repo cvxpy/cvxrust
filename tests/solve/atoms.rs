@@ -378,36 +378,27 @@ fn test_maximize_atoms() {
 #[test]
 fn test_infeasible() {
     for (name, prob) in infeasible_test_cases() {
-        let result = prob.solve();
-        match result {
-            Err(CvxError::SolverError(msg)) if msg.contains("infeasible") => {
-                // Expected
-            }
-            Ok(solution) if solution.status == SolveStatus::Infeasible => {
-                // Also acceptable
-            }
-            other => {
-                panic!("Problem '{}' should be infeasible, got {:?}", name, other);
-            }
-        }
+        let solution = prob.solve().expect("infeasibility is a solver outcome");
+        assert_eq!(solution.status, SolveStatus::Infeasible, "{name}");
+        assert_eq!(solution.value, Some(f64::INFINITY), "{name}");
+        assert!(solution.primal.is_none(), "{name}");
+        assert!(solution.dual.is_none(), "{name}");
     }
 }
 
 #[test]
 fn test_unbounded() {
     for (name, prob) in unbounded_test_cases() {
-        let result = prob.solve();
-        match result {
-            Err(CvxError::SolverError(msg)) if msg.contains("unbounded") => {
-                // Expected
-            }
-            Ok(solution) if solution.status == SolveStatus::Unbounded => {
-                // Also acceptable
-            }
-            other => {
-                panic!("Problem '{}' should be unbounded, got {:?}", name, other);
-            }
-        }
+        let solution = prob.solve().expect("unboundedness is a solver outcome");
+        assert_eq!(solution.status, SolveStatus::Unbounded, "{name}");
+        let expected = if prob.objective.is_minimize() {
+            f64::NEG_INFINITY
+        } else {
+            f64::INFINITY
+        };
+        assert_eq!(solution.value, Some(expected), "{name}");
+        assert!(solution.primal.is_none(), "{name}");
+        assert!(solution.dual.is_none(), "{name}");
     }
 }
 
